@@ -1,4 +1,4 @@
-import {type LineEvent,type LineReply,type PendingTask,restJson} from "./runtime.ts";
+import {type LineEvent,type LineReply,type OutboundMessage,type PendingTask,restJson} from "./runtime.ts";
 
 const cachedLineNames=new Map<string,{value:string;until:number}>();
 async function lineLabel(key:string,url:string,token:string,property:string,fallback:string):Promise<string>{
@@ -47,10 +47,11 @@ export async function shouldRespond(event:LineEvent,token:string):Promise<boolea
   return Boolean(botUserId&&mentions.some(m=>m?.type==="user"&&m.userId===botUserId));
 }
 
-function replyMessages(answer:string|LineReply):LineReply[]{
-  return [typeof answer==="string"?{type:"text",text:answer.slice(0,4500)}:answer];
+export function replyMessages(answer:OutboundMessage):LineReply[]{
+  const messages=Array.isArray(answer)?answer:[typeof answer==="string"?{type:"text" as const,text:answer.slice(0,4500)}:answer];
+  return messages.slice(0,5);
 }
-export async function sendReply(token:string,replyToken:string,answer:string|LineReply):Promise<void> {
+export async function sendReply(token:string,replyToken:string,answer:OutboundMessage):Promise<void> {
   const r=await fetch("https://api.line.me/v2/bot/message/reply",{
     method:"POST",
     headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
@@ -68,7 +69,7 @@ async function retryKey(eventId:string,revision:number):Promise<string>{
   return h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);
 }
 /** Monthly push is intentionally conservative: never buy overage messages. */
-export async function sendFreePush(token:string,task:PendingTask,answer:string|LineReply):Promise<"sent"|"no_free_quota">{
+export async function sendFreePush(token:string,task:PendingTask,answer:OutboundMessage):Promise<"sent"|"no_free_quota">{
   const headers={"Authorization":"Bearer "+token};
   const [quotaRes,usedRes]=await Promise.all([
     fetch("https://api.line.me/v2/bot/message/quota",{headers,signal:AbortSignal.timeout(6500)}),
