@@ -6,7 +6,7 @@
   let settings = null;
   const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
   let session = newId();
-  let baseline = '', busy = false, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
+  let baseline = '', busy = false, pendingMessage = null, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
   const seen = new Set();
   function select(css) {
     try { return css ? [...document.querySelectorAll(css)] : []; } catch { return []; }
@@ -126,18 +126,28 @@
     document.documentElement.appendChild(panel);
   }
   async function runSuggestion(msg) {
-    if (busy || !msg?.text) return;
+    if (!msg?.text) return;
+    if (busy) { pendingMessage = msg; return; }
     busy = true;
+    const currentKey = signature(msg);
     const eventId = newId();
     showPanel('AI 正在整理回覆…');
     try {
       const result = await chrome.runtime.sendMessage({
         type:'SUGGEST', text:msg.text, conversationId:session, eventId
       });
+      if (pendingMessage && signature(pendingMessage) !== currentKey) return;
       if (!result?.ok) throw new Error(result?.error || 'unknown_error');
       showPanel(result.text, result.text);
-    } catch(error) { showPanel('產生回覆失敗：' + String(error?.message || error)); }
-    finally { busy = false; }
+    } catch(error) {
+      if (!pendingMessage || signature(pendingMessage) === currentKey)
+        showPanel('產生回覆失敗：' + String(error?.message || error));
+    } finally {
+      busy = false;
+      const next = pendingMessage;
+      pendingMessage = null;
+      if (next && signature(next) !== currentKey) void runSuggestion(next);
+    }
   }
   async function detect() {
     if (!settings?.enabled || !settings?.messageSelector || picker) return;
