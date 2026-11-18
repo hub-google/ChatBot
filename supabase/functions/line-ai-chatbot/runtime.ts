@@ -4,6 +4,8 @@ declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void } | 
 
 export const PROJECT_URL = Deno.env.get("SUPABASE_URL") || "";
 export const MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"] as const;
+/** Free-tier backup models used only when both Gemma endpoints fail. */
+export const BACKUP_MODELS = ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite"] as const;
 export const VOICE_TAG="#說話";
 export const IMAGE_TAG="#圖片";
 export const VOICE_QUOTA_TEXT="沒有Token說話了，只能打字回覆你啦。";
