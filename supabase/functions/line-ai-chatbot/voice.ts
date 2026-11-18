@@ -2,7 +2,7 @@ import * as lame from "npm:@breezystack/lamejs@1.2.7";
 import {createClient} from "npm:@supabase/supabase-js@2.78.0";
 const VOICE_MODEL="gemini-2.5-flash-preview-tts";
 export type VoiceName="Zephyr"|"Leda"|"Aoede";
-export const DEFAULT_VOICE_NAME:VoiceName="Zephyr";
+export const DEFAULT_VOICE_NAME:VoiceName="Leda";
 const VOICE_COMMAND=/#說話(?:[：:]\s*(Zephyr|Leda|Aoede))?/gi;
 export function parseVoiceCommand(input:string):{requested:boolean;voiceName:VoiceName;text:string}{
   let requested=false;
