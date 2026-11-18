@@ -1,7 +1,22 @@
 import * as lame from "npm:@breezystack/lamejs@1.2.7";
 import {createClient} from "npm:@supabase/supabase-js@2.78.0";
 const VOICE_MODEL="gemini-2.5-flash-preview-tts";
-const VOICE_NAME="Leda";
+export type VoiceName="Zephyr"|"Leda"|"Aoede";
+export const DEFAULT_VOICE_NAME:VoiceName="Zephyr";
+const VOICE_COMMAND=/#說話(?:[：:]\s*(Zephyr|Leda|Aoede))?/gi;
+export function parseVoiceCommand(input:string):{requested:boolean;voiceName:VoiceName;text:string}{
+  let requested=false;
+  let voiceName:VoiceName=DEFAULT_VOICE_NAME;
+  const text=input.replace(VOICE_COMMAND,(_match,selected:string|undefined)=>{
+    requested=true;
+    if(selected){
+      const selectedLower=selected.toLowerCase();
+      voiceName=selectedLower==="leda"?"Leda":selectedLower==="aoede"?"Aoede":"Zephyr";
+    }
+    return "";
+  }).trim();
+  return {requested,voiceName,text};
+}
 const VOICE_BUCKET="chatbot-line-voice";
 const MAX_OUTPUT=270000;
 const TTL_SECONDS=604800;
@@ -34,10 +49,17 @@ function pcmToMp3(base64:string,sampleRate:number):{bytes:Uint8Array;duration:nu
   let offset=0;for(const part of result){bytes.set(part,offset);offset+=part.length;}
   return {bytes,duration};
 }
-async function generatePcm(key:string,text:string):Promise<{audio:string;rate:number}>{
-  const prompt="用台灣繁體中文，活潑可愛的年輕少女語氣，自然清楚地朗讀以下內容，請勿添加額外文字：\n"+text.slice(0,240);
+async function generatePcm(key:string,text:string,voiceName:VoiceName):Promise<{audio:string;rate:number}>{
+  const prompt=[
+    "請用自然的台灣華語朗讀以下回覆，就像二十多歲的甜美女生在 LINE 傳語音給熟朋友。",
+    "語氣親切、輕盈、俏皮，帶一點自然笑意。依句子情緒自然變化語調，語速略輕快、停頓自然。",
+    "不要客服、新聞播報、配音員或機械朗讀的口吻，也不要刻意提高音調、裝嗲或拖長尾音。",
+    "只說出下方回覆本身，不要念出指令、添加句子或改動資訊。",
+    "【回覆】",
+    text.slice(0,240)
+  ].join("\n");
   const data={contents:[{parts:[{text:prompt}]}],generationConfig:{
-    responseModalities:["AUDIO"],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:VOICE_NAME}}}
+    responseModalities:["AUDIO"],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName}}}
   }};
   for(let n=0;n<2;n++){
     let response:Response;
@@ -71,9 +93,9 @@ async function generatePcm(key:string,text:string):Promise<{audio:string;rate:nu
   throw new VoiceError("unavailable","tts_unavailable");
 }
 export async function makeVoiceAnswer(
-  geminiKey:string,supabaseUrl:string,serviceKey:string,text:string
-):Promise<{originalContentUrl:string;duration:number}>{
-  const pcm=await generatePcm(geminiKey,text);
+  geminiKey:string,supabaseUrl:string,serviceKey:string,text:string,voiceName:VoiceName=DEFAULT_VOICE_NAME
+):Promise<{originalContentUrl:string;duration:number;voiceName:VoiceName}>{
+  const pcm=await generatePcm(geminiKey,text,voiceName);
   const mp3=pcmToMp3(pcm.audio,pcm.rate);
   const client=createClient(supabaseUrl,serviceKey,{
     auth:{autoRefreshToken:false,persistSession:false}
@@ -85,7 +107,7 @@ export async function makeVoiceAnswer(
   if(error)throw new VoiceError("unavailable","storage_upload_failed");
   const {data, error:signError}=await client.storage.from(VOICE_BUCKET).createSignedUrl(name,TTL_SECONDS);
   if(signError||!data?.signedUrl)throw new VoiceError("unavailable","storage_sign_failed");
-  return {originalContentUrl:data.signedUrl,duration:mp3.duration};
+  return {originalContentUrl:data.signedUrl,duration:mp3.duration,voiceName};
 }
 export async function cleanupOldVoiceFiles(supabaseUrl:string,serviceKey:string):Promise<void>{
   try{
