@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "CHATBOT 跨平台聊天助手",
+  "version": "0.1.0",
+  "description": "連結既有 CHATBOT AI，在指定聊天網站取得建議回覆；每個網站需自行啟用。",
+  "action": { "default_title": "CHATBOT", "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage", "scripting", "activeTab"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "host_permissions": ["https://unapiwajmgqqtdkixaab.supabase.co/*"],
+  "minimum_chrome_version": "116"
+}

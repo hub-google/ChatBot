@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CHATBOT</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><div class="brand">CHATBOT <small>跨平台聊天助手</small></div><span id="connection" class="chip">未配對</span></header>
+  <section id="pairArea" class="panel">
+    <h2>連接你的 CHATBOT</h2><p>輸入一次性配對碼。AI 金鑰不會存入 Chrome。</p>
+    <label for="pairCode">配對碼</label><input id="pairCode" type="password" placeholder="貼上配對碼" autocomplete="off" spellcheck="false">
+    <button id="pairBtn" class="primary">連接</button>
+  </section>
+  <section class="panel">
+    <h2>目前網站</h2><p id="origin">讀取中…</p>
+    <button id="enableSite" class="primary" disabled>啟用此網站</button>
+    <button id="disableSite" class="outline" hidden>停用此網站</button>
+    <div id="siteArea" hidden>
+      <h3>選取頁面元素</h3><p>按下按鈕後，在網頁上點選對應元素；Esc 取消。</p>
+      <div class="grid"><button data-pick="message">1. 對方訊息</button><button data-pick="input">2. 輸入框</button><button data-pick="send">3. 送出按鈕</button></div>
+      <div id="selectorStatus" class="minor">尚未設定</div>
+      <h3>回覆模式</h3>
+      <select id="replyMode"><option value="suggest">AI 建議（不操作輸入框）</option><option value="fill">顯示後由我按「填入」</option></select>
+      <p>不會自動傳訊；請遵守使用網站的規範。</p>
+      <div class="grid"><button id="testBtn">測試最新訊息</button><button id="resetBtn">新對話／清除記憶</button></div>
+    </div>
+  </section>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <footer><button id="disconnectBtn">取消本機配對</button><a href="https://github.com/hub-google/ChatBot" target="_blank" rel="noreferrer">GitHub</a></footer>
+  <script src="popup.js"></script>
+</body></html>
