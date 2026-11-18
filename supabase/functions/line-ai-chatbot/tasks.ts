@@ -1,4 +1,4 @@
-import {type BotSecrets,type LineEvent,type PendingTask,type LineReply,PROJECT_URL,adminKey,IMAGE_TAG,VOICE_QUOTA_TEXT,later,rest,restJson,digestId} from "./runtime.ts";
+import {type BotSecrets,type LineEvent,type PendingTask,type LineReply,type OutboundMessage,PROJECT_URL,adminKey,IMAGE_TAG,VOICE_QUOTA_TEXT,later,rest,restJson,digestId} from "./runtime.ts";
 import {insertReceipt,markReceipt,insertChat,fetchHistory,countUserMessages,countGlobalReplies,cleanupExpired,latestQuestion} from "./messages.ts";
 import {sendReply,sendFreePush,shouldRespond,messageIdentity} from "./line.ts";
 import {generateText,loadKnowledge,generateGroundedAnswer} from "./generation.ts";
@@ -146,14 +146,18 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   // Critical latest-wins check: an older revision cannot transition to sending.
   if(!(await changeTask(task,"processing",{status:"sending"})))return null;
   let delivery:"sent"|"no_free_quota"="no_free_quota";
-  let outbound:string|LineReply=picture
+  let outbound:OutboundMessage=picture
     ?{type:"image",originalContentUrl:picture.originalContentUrl,previewImageUrl:picture.previewImageUrl}
     :response.text;
   let voiceModel="";
   if(voiceRequested){
     try{
-      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,response.text,voiceCommand.voiceName);
-      outbound={type:"audio",originalContentUrl:audio.originalContentUrl,duration:audio.duration};
+      // Speak only the conversational answer; follow it with citations as text.
+      const citationAt=response.text.indexOf("\n\n來源：");
+      const spoken=citationAt>=0?response.text.slice(0,citationAt):response.text;
+      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,spoken,voiceCommand.voiceName);
+      const audioMessage={type:"audio" as const,originalContentUrl:audio.originalContentUrl,duration:audio.duration};
+      outbound=citationAt>=0?[audioMessage,{type:"text",text:response.text.slice(citationAt+2)}]:audioMessage;
       voiceModel=" | TTS:"+audio.voiceName;
       // Small, best-effort storage cleanup; never interrupt an actual reply.
       if(Math.random()<0.05)later(cleanupOldVoiceFiles(PROJECT_URL,adminKey));
