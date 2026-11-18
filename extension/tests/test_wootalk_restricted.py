@@ -18,7 +18,7 @@ html = """<!doctype html><meta charset="utf-8">
 <span id="counter">0</span>
 <script>document.querySelector('#send').onclick=()=>document.querySelector('#counter').textContent=String(+document.querySelector('#counter').textContent+1)</script>"""
 with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True, viewport=None)
+    browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={"width":1280, "height":720})
     page.goto("about:blank")
     page.set_content(html)
