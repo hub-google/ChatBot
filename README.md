@@ -138,13 +138,13 @@ FROM public."ChatBot_Line_pending";
 1. Gemma 回答文字 → Gemini API `gemini-2.5-flash-preview-tts`（聲線 `Leda`，年輕、自然）→ 24 kHz PCM。
 2. 透過 `npm:@breezystack/lamejs@1.2.7` 將 PCM 轉為 LINE 接受的 MP3；以 `npm:@supabase/supabase-js@2.78.0` 上傳至 Supabase Storage 私有 bucket `chatbot-line-voice`。
 3. 取得約 7 日有效的簽署音檔網址後，組成 `{type:"audio",originalContentUrl,duration}`，優先交由 LINE Reply API 發送；現有佇列回覆逾時時依原有免費 Push 安全限制處理。
-4. **TTS Token／配額不足（429、明確配額 403、語音每天預設 200 次的免費保護上限）**，不丟失 Gemma 回答，改傳：
+4. **Google TTS API 實際回傳配額不足（429、明確配額 403）**，不丟失 Gemma 回答，改傳：
    `沒有Token說話了，只能打字回覆你啦。\n`＋原回答。
 5. 如果 TTS 空音檔、轉碼、儲存或其他非額度錯誤，改傳 `語音暫時無法送出，先用文字回覆你：\n`＋原回答。
 6. 成功音訊用 `AI 模型` 欄加註 `TTS:Leda`；文字降級時儲存實際發送的提示句及原回答。音訊檔大小上限約 270 KB，僅持有簽署網址者可取得，逾 7 日的音檔採用機會式清理（若長期沒有新語音流量，舊檔可能延後清理，需監控 Storage 用量）。
 
 主要程式：`supabase/functions/line-ai-chatbot/index.ts` 與 `supabase/functions/line-ai-chatbot/voice.ts`。**不修改 GitHub `Data` 專業知識檔案或其觸發規則。**
 
-**驗證：** 已實測 Gemini TTS 回傳實際 PCM、轉換成約 4.5 秒 / 36 KB 的 `audio/mpeg`、私有簽署 URL HTTP 200、LINE 音訊 Reply 物件官方驗證 HTTP 200。未取得真實使用者的 LINE Reply Token，因此**尚未驗證語音真正送達 LINE 聊天室**。部署版 `line-ai-chatbot` v15。
+**驗證：** 已實測 Gemini TTS 回傳實際 PCM、轉換成約 4.5 秒 / 36 KB 的 `audio/mpeg`、私有簽署 URL HTTP 200、LINE 音訊 Reply 物件官方驗證 HTTP 200。未取得真實使用者的 LINE Reply Token，因此**尚未驗證語音真正送達 LINE 聊天室**。部署版 `line-ai-chatbot` 已移除自行設定的每日 200 次限制。
 
-**成本提醒：** Gemini TTS 的免費層級、Supabase Storage 容量及流量都有限制；200 次／日是自訂上限而非 Google 保證的免費配額，實際高流量零成本仍需監控。沒有啟用付費模型或 Cloudflare Worker。
+**成本提醒：** Gemini TTS 的免費層級、Supabase Storage 容量及流量都有限制；**不設自訂每日語音次數上限**，只依 Google API 實際回傳的配額錯誤切換文字。高流量的零成本仍需監控。沒有啟用付費模型或 Cloudflare Worker。
