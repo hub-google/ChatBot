@@ -113,7 +113,7 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
       console.warn("chatbot_image_fallback",e instanceof Error?e.message:"image_error");
     }else{
       const code=String(e instanceof Error?e.message:"model_error").slice(0,80);
-      const delay=code==="gemma_403"?3600000:code==="gemma_429"?120000:retryDelay(task.attempts+1);
+      const delay=code.endsWith("_403")?3600000:code.endsWith("_429")?120000:retryDelay(task.attempts+1);
       await reschedule(task,delay,code);
       console.warn("chatbot_model_retry",code,"attempt",task.attempts+1);
       return delay;
