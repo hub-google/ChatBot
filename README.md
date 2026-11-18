@@ -158,3 +158,14 @@ FROM public."ChatBot_Line_pending";
 - **真實免費配額核對：** 2026-11-18 已以目前 LINE ChatBot Vault 中的 Google API Key 分別呼叫 `gemini-2.5-flash-image` 與 `gemini-3.1-flash-lite-image`，Google 都回傳 HTTP 429 並明確寫入 `generate_content_free_tier_requests limit: 0`。這是 Google 端配額設定，程式碼不能解除。只有該 API Key 獲得實際可用的免費產圖配額後才可能真正回圖；沒有啟用計費。
 - `image.ts`：Gemini 圖片生成、MIME／尺寸驗證、Supabase Storage 上傳與過期清理。圖片儲存及簽署 URL 並非永久圖庫（過期檔案採用機會式清理），需要另外規劃長期保存。
 - 目前已驗證 Gemini 免費配額回應、LINE 圖片訊息物件及 Edge Function 部署；尚未完成在有免費額度時真正生成圖片並傳送至真人 LINE 的端到端驗收。
+
+## 自動即時網路搜尋（2026-11-18）
+
+- **自動啟用：** 含即時／時效性查詢（例如「今天台北天氣」、「台積電最新新聞」、「現在的股價」）時搜尋；也可以強制輸入 \`#搜尋 查詢內容\`。一般聊天維持 Gemma 原本流程，不額外呼叫搜尋 API。
+- **氣象：** 台灣縣市查詢以 Open-Meteo 免費開放 API 查詢目前模式推估的氣溫、體感溫度、降雨、高低溫、時間與來源。這是氣象模式推估，**不是中央氣象署測站的實際觀測值**。沒有辨識到縣市時請使用者補充，不推測位置。Open-Meteo 的免費端點**限非商業用途**，也有每日／每月請求上限，不能保證大流量商業使用。
+- **一般網路搜尋：** 以 Bing 公開 RSS 搜尋結果為主、Google 新聞 RSS 為輔；新聞查詢反過來優先 Google 新聞 RSS；一般查不到再以中文維基百科補充背景。對外顯示至多兩筆實際來源網址。公開 RSS 端點非有 SLA 的正式 Search API，搜尋結果可能不即時、不完整，或被來源網站限制。
+- **信任與錯誤處理：** 外部搜尋摘要僅作為資料而不是指令，Gemma 照原本的人格回應；當網路搜尋全失敗，回「目前無法取得可核對的即時資訊，我先不亂猜。晚點再問我一次。」而不是用舊知識假裝新資料。即時股價、選舉、比數等資訊仍要核對原始官方來源。
+- **免費優先：** 沒有綁定付費搜尋服務、Google Search Grounding 計費功能或 Cloudflare Worker；不會因為流量升高自動轉換付費 API。搜尋來源可能封鎖、限流或中斷，免費不等於無限額度。
+- **資源控制：** RSS 請求超時約 3.9 秒、氣象約 3.9 秒；有效結果於單一 Edge Function 執行個體記憶體中暫存 3 分鐘（天氣 5 分鐘），錯誤暫存 25 秒。沒有新增資料表或永久儲存搜尋內容，Edge Function 執行量及 Google 原本的文字回答模型仍受 Supabase／Google 免費配額限制。
+- **程式碼：** \`supabase/functions/line-ai-chatbot/search.ts\`（判斷需否查詢、搜尋與來源整理）、\`index.ts\`（接入已存在的聊天／重試／LINE 發送流程）。已部署 \`line-ai-chatbot\` v18。
+- **驗證：** 正式 Supabase v18 ACTIVE；服務健康檢查 HTTP 200、已設定機密；由 Supabase 網路對 Open-Meteo、Bing RSS、Google 新聞 RSS 實測 HTTP 200，分別取得氣象 JSON／10 筆 Bing RSS 項目／100 筆 Google 新聞 RSS 項目。**尚未透過真人 LINE 聊天驗收完整「訊息→搜尋→Gemma 回覆→LINE 發送」流程**；來源可用性可能隨時改變。
