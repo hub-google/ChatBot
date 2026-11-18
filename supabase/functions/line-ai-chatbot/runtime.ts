@@ -54,6 +54,7 @@ export async function verifyLine(secret:string, raw:string, signature:string|nul
 }
 
 export type LineReply={type:"text";text:string}|{type:"audio";originalContentUrl:string;duration:number}|{type:"image";originalContentUrl:string;previewImageUrl:string};
+export type OutboundMessage=string|LineReply|LineReply[];
 
 export type PendingTask={
   user_hash:string; revision:number; event_id:string; latest_message_id:number;
