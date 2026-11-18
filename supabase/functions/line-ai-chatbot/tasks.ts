@@ -1,5 +1,5 @@
 import {type BotSecrets,type LineEvent,type PendingTask,type LineReply,type OutboundMessage,PROJECT_URL,adminKey,IMAGE_TAG,VOICE_QUOTA_TEXT,later,rest,restJson,digestId} from "./runtime.ts";
-import {insertReceipt,markReceipt,insertChat,fetchHistory,countUserMessages,countGlobalReplies,cleanupExpired,latestQuestion} from "./messages.ts";
+import {insertReceipt,markReceipt,insertChat,fetchHistory,cleanupExpired,latestQuestion} from "./messages.ts";
 import {sendReply,sendFreePush,shouldRespond,messageIdentity} from "./line.ts";
 import {generateText,loadKnowledge,generateGroundedAnswer} from "./generation.ts";
 import {needsWebSearch,searchWebContext} from "./search.ts";
@@ -15,10 +15,6 @@ const PENDING_TABLE=encodeURIComponent("ChatBot_Line_pending");
 const RETRY_DELAYS_MS=[2000,4000,8000,15000,30000];
 const sleep=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
 const retryDelay=(attempt:number)=>RETRY_DELAYS_MS[Math.min(Math.max(attempt-1,0),RETRY_DELAYS_MS.length-1)];
-const tomorrowTaipei=()=>{
-  const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
-  return Date.parse(today+"T00:00:00+08:00")+86400000;
-};
 function taskFilter(task:PendingTask,status:string):string{
   return PENDING_TABLE+"?user_hash=eq."+encodeURIComponent(task.user_hash)+
     "&revision=eq."+task.revision+"&lease_id=eq."+encodeURIComponent(task.lease_id)+
@@ -68,18 +64,6 @@ async function rescheduleSending(task:PendingTask,delayMs:number,code:string):Pr
     lease_id:null,leased_until:null,error_code:code.slice(0,100)
   });
 }
-async function modelRateLimit(hash:string):Promise<{delay:number;reason:string}|null>{
-  const now=Date.now(),today=new Date(now+8*3600000).toISOString().slice(0,10)+"T00:00:00+08:00";
-  const [minute,day,global]=await Promise.all([
-    countUserMessages(hash,new Date(now-60000).toISOString(),12),
-    countUserMessages(hash,today,100),
-    countGlobalReplies(today,1200)
-  ]);
-  if(minute>=12)return {delay:60000,reason:"per_minute_limit"};
-  if(day>=100)return {delay:Math.max(60000,tomorrowTaipei()-now),reason:"per_day_limit"};
-  if(global>=1200)return {delay:Math.max(60000,tomorrowTaipei()-now),reason:"global_day_limit"};
-  return null;
-}
 async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<number|null>{
   const originalQuestion=await latestQuestion(task.latest_message_id);
   const imageRequested=originalQuestion.includes(IMAGE_TAG);
@@ -94,8 +78,6 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
     await reschedule(task,3600000,"empty_or_missing_question");
     return null;
   }
-  const rate=await modelRateLimit(task.user_hash);
-  if(rate){await reschedule(task,rate.delay,rate.reason);return null;}
   const hist=await fetchHistory(task.user_hash);
   // The newest text is already in the persisted history. Don't send it twice.
   if(hist.length&&hist[hist.length-1].role==="user"&&hist[hist.length-1].content===originalQuestion)hist.pop();

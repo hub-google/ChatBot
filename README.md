@@ -66,7 +66,7 @@ messages.ts：成功傳送後紀錄回覆／模型，避免已發送訊息重送
 
 - **持久化重試：** Gemma 優先 `gemma-4-26b-a4b-it`，失敗切換 `gemma-4-31b-it`；暫時失敗可依原有 `2／4／8／15／30 秒`退避。Supabase `pg_cron` 每 30 秒檢查待回覆任務，`pg_net` 負責喚起 `line-ai-chatbot`；新訊息優先。
 - **LINE 發送：** 40 秒內優先 Reply API；Reply Token 過期後才使用 Push，必須檢查免費額度並原子預留，現有保守上限為每月 190 則 Push。配額不可確認就不發付費 Push。
-- **原有保護額度：** 每聊天室每分鐘 12 則、每天 100 則，全站每天 1,200 則 AI 回覆；這是既有程式限制，並非 Gemini 或 LINE 實際官方免費配額。
+- **聊天次數：** 不再設程式自訂的每分鐘／每日對話上限；仍受模型、Supabase、LINE 官方免費配額與防濫用保護約束。
 - **外部免費服務：** Open-Meteo 免費端點僅限符合其非商業使用政策的情況；公開 RSS／wttr.in 亦非無限資源。Gemma、TTS、產圖功能仍各自受 Google 免費配額限制，**不自動啟用付費 API**。
 - **秘密：** LINE Channel Secret、Access Token、Gemini Key 存於 Supabase Vault，由 `ChatBot_Line_runtime_secrets` 提供。Webhook 必須驗證簽章，排程與診斷必須驗證 Vault 工作金鑰。密鑰不可寫入 GitHub、公開前端或 README。
 - **資料：** 對話保留在原有表；私有語音／圖片以約 7 日有效的簽署網址發送。不要假設過期影音會立即清理，需監控儲存空間。
@@ -90,3 +90,12 @@ deno test --allow-env supabase/functions/line-ai-chatbot/regression.test.ts
 ### 變更原則
 
 直接修改負責該功能的模組；不疊加第二套同義函式、額外的 Webhook、重複資料表或臨時例外分支。變更前先看現行程式，改完更新相對應回歸測試，先提交 GitHub `main` 再部署 Supabase，最後核對正式版本和實際功能。
+
+## 跨平台 Chrome 聊天助手（2026-11-18）
+
+新增 `chatbot-api`，共用現有 `generation.ts`、`search.ts` AI 引擎，與 LINE Webhook 分開部署。
+Chrome 擴充功能見 `extension/`：配對碼一次性兌換裝置權杖、個別網站權限、逐站選取訊息／輸入框／發送鍵、AI 建議與手動填入。**不會代替使用者自動發送訊息**，WooTalk 尚需符合其服務條款。所有原有 LINE 表格保留；跨平台使用獨立的 `ChatBot_Bridge_*` 表。
+
+首次連線：管理者建立安全隨機配對碼，僅將 SHA-256 存於 `ChatBot_Bridge_pairs`，使用者在擴充功能內兌換設備權杖；Chrome 永不保存 Gemini 或 service_role 金鑰。可透過設置 `ChatBot_Bridge_devices.revoked_at` 撤銷裝置。
+
+開發驗證：LINE 必須獨立回歸測試，`main` 程式與 SQL 為單一來源。正式環境舊的 LINE Edge Function 不因新增跨平台函式而被覆蓋。
