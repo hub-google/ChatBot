@@ -531,6 +531,24 @@ async function processEvent(event:LineEvent,secrets:BotSecrets):Promise<void>{
 }
 Deno.serve(async(request:Request):Promise<Response>=>{
   if(request.method==="GET"){
+    // Authenticated, read-only diagnostic: exercises the same search router as LINE
+    // without creating a chat record, consuming Gemini tokens, or sending a LINE reply.
+    const probe=new URL(request.url).searchParams.get("weather_probe");
+    if(probe!==null){
+      if(probe.length>120||!/(?:天氣|氣溫|下雨)/.test(probe))
+        return replyJson({error:"invalid_probe"},400);
+      try{
+        const provided=request.headers.get("x-chatbot-worker")||"";
+        const allowed=String(await restJson("rpc/ChatBot_Line_scheduler_secret",{method:"POST",body:"{}"})||"");
+        if(!provided||!allowed||!safeEqual(provided,allowed))
+          return replyJson({error:"forbidden"},403);
+        const routed=needsWebSearch(probe);
+        const lookup=routed?await searchWebContext(probe):null;
+        return replyJson({routed,kind:lookup?.kind||null,status:lookup?.status||null,answer:lookup?.answer||null,has_sources:Boolean(lookup?.sources.length)});
+      }catch{
+        return replyJson({error:"probe_unavailable"},503);
+      }
+    }
     let configured=false;
     try{
       const x=await getSecrets();
