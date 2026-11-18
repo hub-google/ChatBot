@@ -102,11 +102,11 @@ Chrome 擴充功能見 `extension/`：配對碼一次性兌換裝置權杖、個
 
 ## 2026-11-18：跨平台 v0.2.0 交付／驗收
 
-- **LINE 正式**：保留原 webhook、對話與重試資料表；目前 Supabase \`line-ai-chatbot\` v27 ACTIVE。健康檢查 200、有效簽章空事件 200、天氣查詢 200；此測試不等於真人 LINE 新訊息收發完整驗收。
-- **Chrome**：\`extension/\` 為 Manifest V3，可從 ZIP 解壓縮後載入。每個網站須獨立授權及選取元素，預設人工確認；自動發送只適用站方許可的網站。WooTalk 只在使用者按「取得最新訊息 AI 建議」時處理，不在背景自動請求 AI。
-- **跨平台 API**：\`chatbot-api\` v2 ACTIVE，一次性配對、裝置金鑰、撤銷、對話去重、獨立資料表。已驗證配對 200、AI 200、撤銷 200、撤銷後 401。
-- **Telegram**：\`chatbot-telegram\` v1 ACTIVE；尚未配置官方 Bot Token 及 Webhook secret，因此未啟用。完成憑證和 Telegram 官方 setWebhook 才能真正收發。支援私訊和群組 /ask、/chat。
-- **Discord**：\`chatbot-discord\` v1 ACTIVE；尚未設定 Discord Public Key、Interactions Endpoint 和 /ask 指令，因此未啟用。只支援官方 Slash Command，不支援任意訊息監聽。
+- **LINE 正式**：保留原 webhook、對話與重試資料表；目前 Supabase `line-ai-chatbot` v27 ACTIVE。健康檢查 200、有效簽章空事件 200、天氣查詢 200；此測試不等於真人 LINE 新訊息收發完整驗收。
+- **Chrome**：`extension/` 為 Manifest V3，可從 ZIP 解壓縮後載入。每個網站須獨立授權及選取元素，預設人工確認；自動發送只適用站方許可的網站。WooTalk 只在使用者按「取得最新訊息 AI 建議」時處理，不在背景自動請求 AI。
+- **跨平台 API**：`chatbot-api` v2 ACTIVE，一次性配對、裝置金鑰、撤銷、對話去重、獨立資料表。已驗證配對 200、AI 200、撤銷 200、撤銷後 401。
+- **Telegram**：`chatbot-telegram` v1 ACTIVE；尚未配置官方 Bot Token 及 Webhook secret，因此未啟用。完成憑證和 Telegram 官方 setWebhook 才能真正收發。支援私訊和群組 /ask、/chat。
+- **Discord**：`chatbot-discord` v1 ACTIVE；尚未設定 Discord Public Key、Interactions Endpoint 和 /ask 指令，因此未啟用。只支援官方 Slash Command，不支援任意訊息監聽。
 - **專案紀律**：不新增 Cloudflare Worker、無 20 秒無條件輪詢。僅在已存在未完成 LINE 任務時由 Supabase 原有排程觸發。沒有自訂每日／每分鐘聊天回覆硬上限，但仍受外部免費配額及防濫用要求限制。
-- **原始碼**：\`supabase/functions/_shared/channel-engine.ts\` 共用官方平台的 AI 生成及對話紀錄流程；\`docs/official-chat-adapters.md\` 說明憑證設定。
+- **原始碼**：`supabase/functions/_shared/channel-engine.ts` 共用官方平台的 AI 生成及對話紀錄流程；`docs/official-chat-adapters.md` 說明憑證設定。
 - **已驗收**：Chrome 基礎訊息偵測、連續訊息最新優先、自動送出授權控制模擬測試。實際 WooTalk DOM／真人 LINE 新訊息／Telegram 與 Discord 官方端到端仍受站方服務或使用者帳號設定限制。
