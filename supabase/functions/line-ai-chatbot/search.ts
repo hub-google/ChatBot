@@ -5,9 +5,9 @@
  * External content is untrusted and may not issue instructions to the model.
  */
 export type SearchSource={title:string;url:string;snippet:string;published?:string};
-export type WebLookup={kind:"weather"|"web";context:string;sources:SearchSource[];status:"ok"|"unavailable"|"location_required"};
+export type WebLookup={kind:"weather"|"web";context:string;sources:SearchSource[];status:"ok"|"unavailable"|"location_required";answer?:string};
 const cache=new Map<string,{until:number;value:WebLookup}>();
-const LIVE_TIME=/(?:今天|今日|現在|目前|最新|即時|剛剛|剛才|最近|近期|昨天|昨日|明天|本週|這週|本月|今年|今年度|此刻|剛發生|剛公布)/;
+const LIVE_TIME=/(?:今天|今日|現在|目前|最新|即時|剛剛|剛才|最近|近期|昨天|昨日|明天|後天|大後天|本週|這週|本月|今年|今年度|此刻|剛發生|剛公布)/;
 const LIVE_TOPIC=/(?:天氣|氣溫|溫度|下雨|降雨|新聞|消息|快訊|股價|股市|匯率|幣價|行情|報價|價格|油價|地震|颱風|台風|選舉|民調|比分|賽程|戰績|停班停課|開盤|收盤|公告|票房|航班|班次|空氣品質|PM2\.?5|運勢|幾點|幾度)/i;
 const QUESTION=/(?:[?？]|嗎|呢|什麼|甚麼|誰|哪|幾|多少|如何|怎樣|怎麼|告訴我|查|看一下|看下|給我|有沒有|是否|會不會|狀況|情況|結果)/;
 const WEATHER=/(?:天氣|氣溫|溫度|降雨|下雨|幾度|會不會下雨)/;
@@ -96,34 +96,52 @@ function cityFromQuestion(question:string):[number,number,string]|null{
  }
  return null;
 }
-async function lookupWeather(question:string):Promise<WebLookup>{
+function requestedForecastDay(question:string):{offset:number;label:string}|null{
+ if(/(?:前天|昨天|昨日)/.test(question))return null;
+ if(question.includes("大後天"))return {offset:3,label:"大後天"};
+ if(question.includes("後天"))return {offset:2,label:"後天"};
+ if(question.includes("明天"))return {offset:1,label:"明天"};
+ return {offset:0,label:"今天"};
+}
+function weatherNumber(value:unknown,suffix:string):string{
+ return typeof value==="number"&&Number.isFinite(value)?value+suffix:"未提供";
+}
+export async function lookupWeather(question:string):Promise<WebLookup>{
  const city=cityFromQuestion(question);
- if(!city)return {kind:"weather",status:"location_required",context:"使用者未提供可辨識的台灣縣市，先詢問要查哪個城市，不要猜地點。",sources:[]};
+ if(!city)return {kind:"weather",status:"location_required",context:"使用者未指定可辨識的台灣縣市，請先詢問城市。",sources:[]};
+ const forecast=requestedForecastDay(question);
+ if(!forecast)return {kind:"weather",status:"unavailable",context:"目前只有未來天氣預報，不能把今天資料當成昨天資料。",answer:"我目前只能查即時或未來預報，過去的天氣需要另外查歷史氣象資料喔。",sources:[]};
  const [lat,lon,name]=city;
  const url="https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+
- "&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m"+
- "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"+
- "&forecast_days=1&timezone=Asia%2FTaipei";
+ "&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code"+
+ "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum"+
+ "&forecast_days=5&timezone=Asia%2FTaipei";
  try{
-  const response=await fetch(url,{signal:AbortSignal.timeout(3900)});
-  if(!response.ok)throw new Error("weather_http");
+  const response=await fetch(url,{signal:AbortSignal.timeout(4800)});
+  if(!response.ok)throw new Error("weather_http_"+response.status);
   const data=await response.json();
-  const current=data?.current, daily=data?.daily;
-  if(!current||!Number.isFinite(current.temperature_2m))throw new Error("weather_no_data");
-  const lines=[
-   name+"氣象資料（Open-Meteo 模式推估，非官方現地測站觀測）",
-   "資料時間："+String(current.time||"未知")+"（台灣時間）",
-   "目前氣溫："+current.temperature_2m+"°C",
-   "體感溫度："+current.apparent_temperature+"°C",
-   "天氣概況："+weatherDescription(Number(current.weather_code)),
-   "當下降水："+current.precipitation+" mm",
-   "相對濕度："+current.relative_humidity_2m+"%",
-   "風速："+current.wind_speed_10m+" km/h",
-   "今日高低溫："+daily?.temperature_2m_max?.[0]+"°C / "+daily?.temperature_2m_min?.[0]+"°C",
-   "今日最高降雨機率："+daily?.precipitation_probability_max?.[0]+"%"
-  ];
-  return {kind:"weather",status:"ok",context:lines.join("\n"),sources:[{title:"Open-Meteo 氣象預報（"+name+"）",url,snippet:"氣象模式估計值"}]};
- }catch{return {kind:"weather",status:"unavailable",context:"即時氣象來源無法存取，不能猜測氣溫。",sources:[]};}
+  const daily=data?.daily;
+  const day=data?.daily?.time?.[forecast.offset];
+  const high=daily?.temperature_2m_max?.[forecast.offset];
+  const low=daily?.temperature_2m_min?.[forecast.offset];
+  const rain=daily?.precipitation_probability_max?.[forecast.offset];
+  const code=daily?.weather_code?.[forecast.offset];
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(day||""))||!Number.isFinite(high)||!Number.isFinite(low)){
+   throw new Error("weather_no_forecast");
+  }
+  const dateLabel=day.slice(5).replace("-","/");  // e.g. 11/20, Asia/Taipei local date
+  const summary=name+forecast.label+"（"+dateLabel+"）預報："+weatherDescription(Number(code))+
+   "，氣溫 "+low+"～"+high+"°C，最高降雨機率 "+weatherNumber(rain,"%")+"。";
+  const now= data?.current;
+  const currentLine=forecast.offset===0&&Number.isFinite(now?.temperature_2m)?
+   "\n目前氣溫 "+weatherNumber(now.temperature_2m,"°C")+"，資料時間 "+String(now.time||"未知")+"（台灣時間）。":"";
+  const answer=summary+currentLine+"\n資料：Open-Meteo 氣象模式預報（非氣象署測站觀測）。\n來源：https://open-meteo.com/en/docs";
+  return {kind:"weather",status:"ok",context:summary+currentLine+"\n預報日期："+day+"\n氣象服務 API："+url,
+    answer,sources:[{title:"Open-Meteo "+name+"預報",url,snippet:summary}]};
+ }catch(e){
+  console.warn("chatbot_weather_fetch_failed",String(e instanceof Error?e.message:"weather_error").slice(0,80));
+  return {kind:"weather",status:"unavailable",context:"氣象來源暫時無法取得資料，不得使用過時資訊猜測。",sources:[]};
+ }
 }
 async function wikiFallback(q:string):Promise<SearchSource[]>{
  try{
