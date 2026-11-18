@@ -61,20 +61,9 @@ export async function generateText(apiKey:string,question:string,history:{role:"
  * trusted retrieval -> the original conversational Gemma persona -> source footer.
  * Never forward provider raw templates to LINE.
  */
-export async function generateGroundedAnswer(
- apiKey:string,question:string,history:{role:"user"|"model";content:string}[],lookup:WebLookup
-):Promise<{text:string;model:string}>{
- const plain=question.replace(/#(?:搜尋|查詢|上網)/gu,"").trim()||question;
- let model:{text:string;model:string}|null=null;
- try{
-  model=await generateText(apiKey,plain,history,await loadKnowledge(plain),lookup.context);
- }catch(e){
-  if(lookup.kind!=="weather")throw e;
-  // Keep verified weather usable when both free language-model endpoints are busy.
-  // This is a friendly prose fallback, not the raw provider response.
-  console.warn("chatbot_weather_style_fallback",String(e instanceof Error?e.message:e).slice(0,70));
- }
- let body=(model?.text||"")
+/** One source footer and one natural-language validation path for every lookup. */
+export function formatGroundedReply(raw:string|null,lookup:WebLookup):string {
+ let body=(raw||"")
   .replace(/https?:\/\/\S+/g,"")
   .replace(/\n\s*(?:資料來源|參考資料|來源)\s*[：:].*$/s,"")
   .replace(/\[[1-9]\]/g,"")
@@ -96,6 +85,23 @@ export async function generateGroundedAnswer(
  if(!body)throw new Error("grounded_answer_empty");
  const sources=lookup.sources.slice(0,lookup.kind==="weather"?1:2).map(s=>
   (s.title+" "+s.url).trim()).filter(Boolean);
- return {text:(body.slice(0,980)+(sources.length?"\n\n來源："+sources.join("\n"):"")).slice(0,1800),
+ return (body.slice(0,980)+(sources.length?"\n\n來源："+sources.join("\n"):"")).slice(0,1800);
+}
+
+export async function generateGroundedAnswer(
+ apiKey:string,question:string,history:{role:"user"|"model";content:string}[],lookup:WebLookup
+):Promise<{text:string;model:string}>{
+ const plain=question.replace(/#(?:搜尋|查詢|上網)/gu,"").trim()||question;
+ let model:{text:string;model:string}|null=null;
+ try{
+  model=await generateText(apiKey,plain,history,await loadKnowledge(plain),lookup.context);
+ }catch(e){
+  if(lookup.kind!=="weather")throw e;
+  // Keep verified weather usable when both free language-model endpoints are busy.
+  // This is a friendly prose fallback, not the raw provider response.
+  console.warn("chatbot_weather_style_fallback",String(e instanceof Error?e.message:e).slice(0,70));
+ }
+ const text=formatGroundedReply(model?.text||null,lookup);
+ return {text,
   model:(model?.model||"weather-style-fallback")+" + Web:"+lookup.kind+(lookup.provider?":"+lookup.provider:"")};
 }
