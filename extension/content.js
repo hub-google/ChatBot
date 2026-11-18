@@ -4,7 +4,8 @@
   globalThis.__CHATBOT_SITE_ASSISTANT__ = true;
   const origin = location.origin;
   let settings = null;
-  let session = crypto.randomUUID().replaceAll('-', '');
+  const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
+  let session = newId();
   let baseline = '', busy = false, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
   const seen = new Set();
   function select(css) {
@@ -127,7 +128,7 @@
   async function runSuggestion(msg) {
     if (busy || !msg?.text) return;
     busy = true;
-    const eventId = crypto.randomUUID().replaceAll('-', '');
+    const eventId = newId();
     showPanel('AI 正在整理回覆…');
     try {
       const result = await chrome.runtime.sendMessage({
@@ -162,7 +163,7 @@
         await runSuggestion(current); return {ok:true};
       }
       if (msg.type === 'RESET') {
-        session = crypto.randomUUID().replaceAll('-', '');
+        session = newId();
         seen.clear(); baseline = signature(latestMessage()); return {ok:true};
       }
       if (msg.type === 'STATUS') return {ok:true,active:Boolean(settings?.enabled),matched:select(settings?.messageSelector).length};
