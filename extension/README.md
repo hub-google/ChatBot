@@ -31,3 +31,9 @@
 - 在無法使用 sessionStorage 的特殊網頁，改為使用臨時會話識別碼，避免初始化失敗。
 
 - WooTalk 只在使用者主動按「取得最新訊息 AI 建議」時處理訊息，背景不會監聽後自動請求 AI。
+
+## WooTalk 實站與離線測試
+
+- 2026-11-18：實站連線在執行環境遭網路限制；公開搜尋結果亦有 WooTalk 維護頁面。**未完成 WooTalk 真人聊天室收發驗收**。
+- 不以自動化連線配對陌生人；依其使用條款，WooTalk 僅支援使用者主動觸發的 AI 建議及人工發送。
+- 可重現的本地 Chromium 測試：安裝 Python Playwright，執行 `python extension/tests/test_wootalk_restricted.py`。此測試使用自製 DOM fixture，強制套用 WooTalk 限制，不連線到 WooTalk、不中轉任何真人內容。驗證無背景 AI 請求、手動產生建議、填入但不送出、強制禁用自動回覆與元素選取。
