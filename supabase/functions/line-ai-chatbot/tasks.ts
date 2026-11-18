@@ -44,12 +44,6 @@ async function claimTasks(hash:string|null,limit:number):Promise<PendingTask[]>{
   });
   return Array.isArray(rows)?rows:[];
 }
-async function latestQuestion(id:number):Promise<string>{
-  const path=encodeURIComponent("ChatBot_Line_對話紀錄")+
-    "?id=eq."+id+"&select="+encodeURIComponent("對話內容")+"&limit=1";
-  const rows=await restJson(path);
-  return String(rows?.[0]?.["對話內容"]||"").slice(0,2000).trim();
-}
 async function reschedule(task:PendingTask,delayMs:number,code:string):Promise<void>{
   await changeTask(task,"processing",{
     status:"pending",attempts:task.attempts+1,

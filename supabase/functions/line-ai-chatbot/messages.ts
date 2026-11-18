@@ -38,16 +38,6 @@ export async function fetchHistory(userHash:string):Promise<{role:"user"|"model"
   const rows=await restJson(path);
   return (Array.isArray(rows)?rows:[]).reverse().map(r=>({role:r.role,content:r["對話內容"]}));
 }
-export async function countUserMessages(userHash:string,since:string,max:number):Promise<number> {
-  const path=encodeURIComponent("ChatBot_Line_對話紀錄")+"?select=id&user_hash=eq."+userHash+"&role=eq.user&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
-  const rows=await restJson(path);
-  return Array.isArray(rows)?rows.length:0;
-}
-export async function countGlobalReplies(since:string,max:number):Promise<number> {
-  const path=encodeURIComponent("ChatBot_Line_對話紀錄")+"?select=id&role=eq.model&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
-  const rows=await restJson(path);
-  return Array.isArray(rows)?rows.length:0;
-}
 
 export async function cleanupExpired():Promise<void>{
   // Keep conversations, as the original Google Sheet did. Only prune event receipts.
