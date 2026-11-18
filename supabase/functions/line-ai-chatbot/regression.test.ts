@@ -1,7 +1,7 @@
 import {needsWebSearch,cleanupSearchQuery,parseRss} from "./search.ts";
 import {formatGroundedReply} from "./generation.ts";
 import type {WebLookup} from "./search.ts";
-import {safeEqual,verifyLine} from "./runtime.ts";
+import {safeEqual,verifyLine,MODELS,BACKUP_MODELS} from "./runtime.ts";
 import {shouldRespond,replyMessages} from "./line.ts";
 
 function check(ok:unknown,label:string):asserts ok {
@@ -13,6 +13,12 @@ const weather:WebLookup={
  sources:[{title:"wttr.in 台北預報",url:"https://wttr.in/25.033,121.565?format=j1",snippet:"氣象預報"}],
  answer:"僅供檢查：舊版原始 API 模板"
 };
+
+Deno.test("Gemma keeps priority and free Gemini failover stays explicit",()=>{
+ check(MODELS[0]==="gemma-4-26b-a4b-it","original Gemma primary");
+ check(MODELS[1]==="gemma-4-31b-it","original Gemma secondary");
+ check(BACKUP_MODELS.length>=1 && BACKUP_MODELS.every(x=>x.startsWith("gemini-")),"Gemini fallback list");
+});
 
 Deno.test("search intent handles future-day weather",()=>{
  check(needsWebSearch("@BOT 後天台北天氣如何"),"future weather");
