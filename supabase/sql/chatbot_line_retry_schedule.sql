@@ -5,6 +5,11 @@ SELECT cron.schedule(
   'chatbot-line-retry',
   '30 seconds',
   $job$
+  -- A crashed function may have already sent the LINE message.
+  -- Never blindly re-send an ambiguous delivery.
+  UPDATE public."ChatBot_Line_pending"
+  SET status='uncertain',error_code='line_send_interrupted',updated_at=now()
+  WHERE status='sending' AND updated_at<now()-interval '3 minutes';
   SELECT net.http_post(
     url := 'https://unapiwajmgqqtdkixaab.supabase.co/functions/v1/line-ai-chatbot',
     headers := jsonb_build_object(
