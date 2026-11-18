@@ -116,3 +116,16 @@ FROM public."ChatBot_Line_pending";
 ```
 
 邊界測試應涵蓋：Google 503→恢復、長時間超時→Cron 恢復、同聊天室新訊息覆蓋舊修訂版、跨聊天室並行、LINE Reply Token 過期、Push 額度不足、Webhook 重送去重、Worker 未授權請求拒絕、資料庫中斷恢復。測試結果須以實際記錄為準，不應把部署成功視為所有實際情境已通過。
+
+
+## 2026-11-18 上線驗證紀錄
+
+已完成（正式 Supabase）：
+- Edge Function `line-ai-chatbot` **v11 ACTIVE**；GitHub `main` 與正式部署內容同步。
+- `chatbot-line-retry` 排程 **job 28／30 秒**，連續執行紀錄 `succeeded`；無到期任務時不呼叫 Edge Function。
+- 使用不含任何真實使用者資訊的暫存任務，成功走過 **Vault 工作金鑰 → HTTP 200 → 資料庫 claim → 重新排程**，並已刪除測試任務。
+- 使用合法 HMAC 簽章測試非聊天事件，LINE Webhook 正式入口回應 **HTTP 200**，沒有向任何使用者發送測試訊息。
+- 資料庫交易測試：第二句提高版本號後，舊版本不能再作為處理中的最新版；匿名角色無法執行排程 RPC 或讀取待回覆表。
+- SQL migration 與 cron 排程皆存入 GitHub；既有聊天紀錄未搬移或刪除。
+
+尚未以實際 LINE 使用者確認：Google 503 多輪失敗後恢復的完整聊天、兩則訊息快速接續、超過 Reply Token 有效期的 Push 實際投遞與不同 LINE OA 套餐的免費額度行為。**這些情境不應標成已通過。**
