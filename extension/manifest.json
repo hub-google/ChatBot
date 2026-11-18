@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CHATBOT 跨平台聊天助手",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "連結既有 CHATBOT AI，在指定聊天網站取得建議回覆；每個網站需自行啟用。",
   "action": { "default_title": "CHATBOT", "default_popup": "popup.html" },
   "background": { "service_worker": "background.js" },
