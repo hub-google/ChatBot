@@ -44,7 +44,7 @@ Deno.serve(async(req:Request):Promise<Response>=>{
  if(req.method==="GET")return out({service:"chatbot-api",active:true});
  if(req.method!=="POST")return out({error:"method_not_allowed"},405);
  const path=new URL(req.url).pathname.replace(/\/+$/,"");
- if(!path.endsWith("/pair")&&!path.endsWith("/reply"))return out({error:"not_found"},404);
+ if(!["/pair","/reply","/revoke"].some(s=>path.endsWith(s)))return out({error:"not_found"},404);
  if(Number(req.headers.get("content-length")||0)>16000)return out({error:"payload_too_large"},413);
  let body:Record<string,unknown>;
  try{body=await req.json();if(!body||typeof body!=="object")throw Error();}catch{return out({error:"invalid_json"},400);}
@@ -61,6 +61,12 @@ Deno.serve(async(req:Request):Promise<Response>=>{
  let device:string|null;
  try{device=await authorize(req);}catch{return out({error:"authentication_unavailable"},503);}
  if(!device)return out({error:"unauthorized"},401);
+ if(path.endsWith("/revoke")){
+  try {
+   await db(deviceTable+"?id=eq."+device,{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({revoked_at:new Date().toISOString()})});
+   return out({revoked:true});
+  }catch(e){console.error("chatbot_revoke_error",String(e).slice(0,80));return out({error:"revoke_unavailable"},503);}
+ }
  if(!isOrigin(body.origin)||typeof body.message!=="string"||!body.message.trim()||body.message.length>2000||
  typeof body.conversationId!=="string"||!/^[A-Za-z0-9_-]{8,100}$/.test(body.conversationId)||
  typeof body.eventId!=="string"||!/^[A-Za-z0-9_-]{8,100}$/.test(body.eventId))
