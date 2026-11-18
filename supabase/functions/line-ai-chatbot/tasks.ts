@@ -1,9 +1,9 @@
-import {type BotSecrets,type LineEvent,type PendingTask,type LineReply,PROJECT_URL,adminKey,VOICE_TAG,IMAGE_TAG,VOICE_QUOTA_TEXT,later,rest,restJson,digestId} from "./runtime.ts";
+import {type BotSecrets,type LineEvent,type PendingTask,type LineReply,PROJECT_URL,adminKey,IMAGE_TAG,VOICE_QUOTA_TEXT,later,rest,restJson,digestId} from "./runtime.ts";
 import {insertReceipt,markReceipt,insertChat,fetchHistory,countUserMessages,countGlobalReplies,cleanupExpired,latestQuestion} from "./messages.ts";
 import {sendReply,sendFreePush,shouldRespond,messageIdentity} from "./line.ts";
 import {generateText,loadKnowledge,generateGroundedAnswer} from "./generation.ts";
 import {needsWebSearch,searchWebContext} from "./search.ts";
-import {makeVoiceAnswer,VoiceError,cleanupOldVoiceFiles} from "./voice.ts";
+import {makeVoiceAnswer,VoiceError,cleanupOldVoiceFiles,parseVoiceCommand} from "./voice.ts";
 import {makeImageAnswer,ImageError,cleanupOldImageFiles} from "./image.ts";
 
 /**
@@ -83,11 +83,12 @@ async function modelRateLimit(hash:string):Promise<{delay:number;reason:string}|
 async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<number|null>{
   const originalQuestion=await latestQuestion(task.latest_message_id);
   const imageRequested=originalQuestion.includes(IMAGE_TAG);
-  const voiceRequested=!imageRequested&&originalQuestion.includes(VOICE_TAG);
+  const voiceCommand=parseVoiceCommand(originalQuestion);
+  const voiceRequested=!imageRequested&&voiceCommand.requested;
   const question=imageRequested
-    ?(originalQuestion.replaceAll(IMAGE_TAG,"").replaceAll(VOICE_TAG,"").trim()||"一張可愛的插畫")
+    ?(voiceCommand.text.replaceAll(IMAGE_TAG,"").trim()||"一張可愛的插畫")
     :voiceRequested
-      ?(originalQuestion.replaceAll(VOICE_TAG,"").trim()||"和我聊幾句")
+      ?(voiceCommand.text||"和我聊幾句")
       :originalQuestion;
   if(!question){
     await reschedule(task,3600000,"empty_or_missing_question");
@@ -151,9 +152,9 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   let voiceModel="";
   if(voiceRequested){
     try{
-      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,response.text);
+      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,response.text,voiceCommand.voiceName);
       outbound={type:"audio",originalContentUrl:audio.originalContentUrl,duration:audio.duration};
-      voiceModel=" | TTS:Leda";
+      voiceModel=" | TTS:"+audio.voiceName;
       // Small, best-effort storage cleanup; never interrupt an actual reply.
       if(Math.random()<0.05)later(cleanupOldVoiceFiles(PROJECT_URL,adminKey));
     }catch(e){
