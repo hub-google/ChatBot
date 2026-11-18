@@ -3,7 +3,7 @@
  * Auth and request dispatch only. Domain logic lives in dedicated modules:
  * runtime, messages, line, generation, search, tasks, voice, image.
  */
-import {type BotSecrets,type LineEvent,MODELS,replyJson,later,restJson,getSecrets,safeEqual,verifyLine} from "./runtime.ts";
+import {type BotSecrets,type LineEvent,MODELS,BACKUP_MODELS,replyJson,later,restJson,getSecrets,safeEqual,verifyLine} from "./runtime.ts";
 import {processCron,processEvent} from "./tasks.ts";
 import {needsWebSearch,searchWebContext,lookupWeather} from "./search.ts";
 import {generateGroundedAnswer} from "./generation.ts";
@@ -43,7 +43,7 @@ Deno.serve(async(request:Request):Promise<Response>=>{
       const x=await getSecrets();
       configured=Boolean(x.gemini_api_key&&x.line_access_token&&x.line_channel_secret);
     }catch{/* keep diagnostics private */}
-    return replyJson({service:"line-ai-chatbot",models:MODELS,deployed:true,configured});
+    return replyJson({service:"line-ai-chatbot",models:MODELS,backup_models:BACKUP_MODELS,deployed:true,configured});
   }
   if(request.method!=="POST")return replyJson({error:"method_not_allowed"},405);
   const workerHeader=request.headers.get("x-chatbot-worker");
