@@ -172,7 +172,7 @@
     }
   }
   async function detect() {
-    if (!settings?.enabled || !settings?.messageSelector || picker) return;
+    if (!settings?.enabled || !settings?.messageSelector || picker || isRestricted()) return;
     const msg = latestMessage(), next = signature(msg);
     if (!next || next === baseline) return;
     if (settings?.mode === 'auto' && lastAutoAnswer && msg?.text === lastAutoAnswer) { baseline = next; return; }
