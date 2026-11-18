@@ -5,7 +5,7 @@
  * External content is untrusted and may not issue instructions to the model.
  */
 export type SearchSource={title:string;url:string;snippet:string;published?:string};
-export type WebLookup={kind:"weather"|"web";context:string;sources:SearchSource[];status:"ok"|"unavailable"|"location_required";answer?:string};
+export type WebLookup={kind:"weather"|"web";context:string;sources:SearchSource[];status:"ok"|"unavailable"|"location_required";provider?:string;answer?:string};
 const cache=new Map<string,{until:number;value:WebLookup}>();
 const LIVE_TIME=/(?:今天|今日|現在|目前|最新|即時|剛剛|剛才|最近|近期|昨天|昨日|明天|後天|大後天|本週|這週|本月|今年|今年度|此刻|剛發生|剛公布)/;
 const LIVE_TOPIC=/(?:天氣|氣溫|溫度|下雨|降雨|新聞|消息|快訊|股價|股市|匯率|幣價|行情|報價|價格|油價|地震|颱風|台風|選舉|民調|比分|賽程|戰績|停班停課|開盤|收盤|公告|票房|航班|班次|空氣品質|PM2\.?5|運勢|幾點|幾度)/i;
@@ -106,41 +106,71 @@ function requestedForecastDay(question:string):{offset:number;label:string}|null
 function weatherNumber(value:unknown,suffix:string):string{
  return typeof value==="number"&&Number.isFinite(value)?value+suffix:"未提供";
 }
-export async function lookupWeather(question:string):Promise<WebLookup>{
- const city=cityFromQuestion(question);
- if(!city)return {kind:"weather",status:"location_required",context:"使用者未指定可辨識的台灣縣市，請先詢問城市。",sources:[]};
- const forecast=requestedForecastDay(question);
- if(!forecast)return {kind:"weather",status:"unavailable",context:"目前只有未來天氣預報，不能把今天資料當成昨天資料。",answer:"我目前只能查即時或未來預報，過去的天氣需要另外查歷史氣象資料喔。",sources:[]};
- const [lat,lon,name]=city;
+function forecastDate(days:number):string{
+ return new Date(Date.now()+8*3600000+days*86400000).toISOString().slice(0,10);
+}
+type WeatherValues={source:string;url:string;date:string;high:number;low:number;rain:number|null;desc:string;current?:number;time?:string};
+async function weatherOpenMeteo(lat:number,lon:number,date:string):Promise<WeatherValues>{
  const url="https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+
  "&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code"+
  "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum"+
  "&forecast_days=5&timezone=Asia%2FTaipei";
+ const r=await fetch(url,{signal:AbortSignal.timeout(7000)});
+ if(!r.ok)throw new Error("openmeteo_http_"+r.status);
+ const d=await r.json(),i=d?.daily?.time?.indexOf(date)??-1;
+ if(i<0)throw new Error("openmeteo_day_missing");
+ const high=Number(d.daily.temperature_2m_max?.[i]),low=Number(d.daily.temperature_2m_min?.[i]);
+ if(!Number.isFinite(high)||!Number.isFinite(low))throw new Error("openmeteo_values_missing");
+ const rain=Number(d.daily.precipitation_probability_max?.[i]);
+ return {source:"Open-Meteo",url:"https://open-meteo.com/en/docs",date,high,low,
+  rain:Number.isFinite(rain)?rain:null,desc:weatherDescription(Number(d.daily.weather_code?.[i])),
+  current:i===0&&Number.isFinite(Number(d.current?.temperature_2m))?Number(d.current.temperature_2m):undefined,
+  time:i===0?String(d.current?.time||""):undefined};
+}
+async function weatherWttr(lat:number,lon:number,date:string):Promise<WeatherValues>{
+ const url="https://wttr.in/"+lat+","+lon+"?format=j1";
+ const r=await fetch(url,{headers:{"Accept":"application/json"},signal:AbortSignal.timeout(6500)});
+ if(!r.ok)throw new Error("wttr_http_"+r.status);
+ const d=await r.json(),day=(Array.isArray(d?.weather)?d.weather:[]).find((x:{date?:string})=>x.date===date);
+ if(!day)throw new Error("wttr_day_missing");
+ const high=Number(day.maxtempC),low=Number(day.mintempC);
+ if(!Number.isFinite(high)||!Number.isFinite(low))throw new Error("wttr_values_missing");
+ const hours=Array.isArray(day.hourly)?day.hourly:[];
+ const rainy=hours.map((x:{chanceofrain?:string})=>Number(x.chanceofrain)).filter(Number.isFinite);
+ const rain=rainy.length?Math.max(...rainy):null;
+ const midday=hours.find((x:{time?:string})=>x.time==="1200")||hours[Math.floor(hours.length/2)]||{};
+ const descText=String(midday?.weatherDesc?.[0]?.value||"");
+ const desc=/thunder|storm/i.test(descText)?"雷雨":/rain|drizzle|shower/i.test(descText)?"有雨":
+  /snow/i.test(descText)?"降雪":/mist|fog/i.test(descText)?"有霧":
+  /cloud|overcast/i.test(descText)?"多雲":/sun|clear/i.test(descText)?"晴朗":"天氣多變";
+ return {source:"wttr.in",url,date,high,low,rain,desc,
+  current:d?.weather?.[0]?.date===date?Number(d?.current_condition?.[0]?.temp_C):undefined};
+}
+export async function lookupWeather(question:string,mode:"auto"|"backup"="auto"):Promise<WebLookup>{
+ const city=cityFromQuestion(question);
+ if(!city)return {kind:"weather",status:"location_required",context:"請指定台灣縣市。",sources:[]};
+ const forecast=requestedForecastDay(question);
+ if(!forecast)return {kind:"weather",status:"unavailable",context:"只提供未來天氣。",
+  answer:"目前只能查即時與未來預報，無法查歷史天氣。",sources:[]};
+ const [lat,lon,name]=city,date=forecastDate(forecast.offset);
  try{
-  const response=await fetch(url,{signal:AbortSignal.timeout(4800)});
-  if(!response.ok)throw new Error("weather_http_"+response.status);
-  const data=await response.json();
-  const daily=data?.daily;
-  const day=data?.daily?.time?.[forecast.offset];
-  const high=daily?.temperature_2m_max?.[forecast.offset];
-  const low=daily?.temperature_2m_min?.[forecast.offset];
-  const rain=daily?.precipitation_probability_max?.[forecast.offset];
-  const code=daily?.weather_code?.[forecast.offset];
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(day||""))||!Number.isFinite(high)||!Number.isFinite(low)){
-   throw new Error("weather_no_forecast");
-  }
-  const dateLabel=day.slice(5).replace("-","/");  // e.g. 11/20, Asia/Taipei local date
-  const summary=name+forecast.label+"（"+dateLabel+"）預報："+weatherDescription(Number(code))+
-   "，氣溫 "+low+"～"+high+"°C，最高降雨機率 "+weatherNumber(rain,"%")+"。";
-  const now= data?.current;
-  const currentLine=forecast.offset===0&&Number.isFinite(now?.temperature_2m)?
-   "\n目前氣溫 "+weatherNumber(now.temperature_2m,"°C")+"，資料時間 "+String(now.time||"未知")+"（台灣時間）。":"";
-  const answer=summary+currentLine+"\n資料：Open-Meteo 氣象模式預報（非氣象署測站觀測）。\n來源：https://open-meteo.com/en/docs";
-  return {kind:"weather",status:"ok",context:summary+currentLine+"\n預報日期："+day+"\n氣象服務 API："+url,
-    answer,sources:[{title:"Open-Meteo "+name+"預報",url,snippet:summary}]};
+  const primary=mode==="backup"?Promise.reject(new Error("primary_skipped")):weatherOpenMeteo(lat,lon,date);
+  const backup=new Promise<WeatherValues>((resolve,reject)=>setTimeout(()=>{
+   weatherWttr(lat,lon,date).then(resolve,reject);
+  },mode==="backup"?0:500));
+  const w=await Promise.any([primary,backup]);
+  const label=date.slice(5).replace("-","/");
+  const summary=name+forecast.label+"（"+label+"）預報："+w.desc+"，氣溫 "+w.low+"～"+w.high+"°C"+
+   (w.rain===null?"":"，最高降雨機率 "+w.rain+"%")+"。";
+  const current=forecast.offset===0&&Number.isFinite(w.current)?
+   "\n目前氣溫 "+w.current+"°C"+(w.time?"，資料時間 "+w.time+"（台灣時間）":"")+"。":"";
+  const answer=summary+current+"\n資料："+w.source+" 天氣預報（非測站實測）。\n來源："+w.url;
+  return {kind:"weather",status:"ok",provider:w.source,context:summary+current+"\n預報日期："+date,answer,
+   sources:[{title:w.source+" "+name+"預報",url:w.url,snippet:summary}]};
  }catch(e){
-  console.warn("chatbot_weather_fetch_failed",String(e instanceof Error?e.message:"weather_error").slice(0,80));
-  return {kind:"weather",status:"unavailable",context:"氣象來源暫時無法取得資料，不得使用過時資訊猜測。",sources:[]};
+  const reasons=e instanceof AggregateError?e.errors.map(x=>String(x?.message||x)).join("|"):String(e);
+  console.warn("chatbot_weather_sources_failed",reasons.slice(0,160));
+  return {kind:"weather",status:"unavailable",context:"兩個氣象來源均失敗，必須重新排程而非傳送錯誤訊息。",sources:[]};
  }
 }
 async function wikiFallback(q:string):Promise<SearchSource[]>{
@@ -187,6 +217,6 @@ export async function searchWebContext(question:string):Promise<WebLookup>{
    }:{kind:"web",status:"unavailable",context:"目前無法取得可核對的即時搜尋結果，不能依舊知識猜測。",sources:[]};
  }
  if(cache.size>80)cache.clear();
- cache.set(key,{until:Date.now()+(result.status==="ok"?(result.kind==="weather"?300000:180000):25000),value:result});
+ if(result.status==="ok")cache.set(key,{until:Date.now()+(result.kind==="weather"?300000:180000),value:result});
  return result;
 }
