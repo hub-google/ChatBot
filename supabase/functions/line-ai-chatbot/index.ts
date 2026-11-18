@@ -457,6 +457,7 @@ async function processEvent(event:LineEvent,secrets:BotSecrets):Promise<void>{
   }finally{
     try{await markReceipt(eventId,completed?"completed":"failed",error);}
     catch(e){console.error("chatbot_receipt_update_failed",String(e).slice(0,100));}
+    await cleanupExpired();
   }
 }
 Deno.serve(async(request:Request):Promise<Response>=>{
