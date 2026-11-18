@@ -17,8 +17,8 @@
       <div class="grid"><button data-pick="message">1. 對方訊息</button><button data-pick="input">2. 輸入框</button><button data-pick="send">3. 送出按鈕</button></div>
       <div id="selectorStatus" class="minor">尚未設定</div>
       <h3>回覆模式</h3>
-      <select id="replyMode"><option value="suggest">AI 建議（不操作輸入框）</option><option value="fill">顯示後由我按「填入」</option></select>
-      <p>不會自動傳訊；請遵守使用網站的規範。</p>
+      <select id="replyMode"><option value="suggest">AI 建議（不操作輸入框）</option><option value="fill">顯示後由我按「填入」</option><option value="auto">自動送出（需要站方許可）</option></select>
+      <label class="consent"><input id="autoAuthorized" type="checkbox"> 我確認已獲得網站自動化使用許可，並符合相關隱私要求。</label><p>WooTalk 不開放自動發送；其他網站須取得站方許可後才可啟用。</p>
       <div class="grid"><button id="testBtn">測試最新訊息</button><button id="resetBtn">新對話／清除記憶</button></div>
     </div>
   </section>

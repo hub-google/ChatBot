@@ -94,7 +94,7 @@ deno test --allow-env supabase/functions/line-ai-chatbot/regression.test.ts
 ## 跨平台 Chrome 聊天助手（2026-11-18）
 
 新增 `chatbot-api`，共用現有 `generation.ts`、`search.ts` AI 引擎，與 LINE Webhook 分開部署。
-Chrome 擴充功能見 `extension/`：配對碼一次性兌換裝置權杖、個別網站權限、逐站選取訊息／輸入框／發送鍵、AI 建議與手動填入。**不會代替使用者自動發送訊息**，WooTalk 尚需符合其服務條款。所有原有 LINE 表格保留；跨平台使用獨立的 `ChatBot_Bridge_*` 表。
+Chrome 擴充功能見 `extension/`：配對碼一次性兌換裝置權杖、個別網站權限、逐站選取訊息／輸入框／發送鍵、AI 建議與手動填入。預設不自動發送；已取得站方許可時可以明確啟用自動發送。WooTalk 禁止自動發送，仍需符合其服務條款。所有原有 LINE 表格保留；跨平台使用獨立的 `ChatBot_Bridge_*` 表。
 
 首次連線：管理者建立安全隨機配對碼，僅將 SHA-256 存於 `ChatBot_Bridge_pairs`，使用者在擴充功能內兌換設備權杖；Chrome 永不保存 Gemini 或 service_role 金鑰。可透過設置 `ChatBot_Bridge_devices.revoked_at` 撤銷裝置。
 

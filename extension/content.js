@@ -6,7 +6,7 @@
   let settings = null;
   const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
   let session = newId();
-  let baseline = '', busy = false, pendingMessage = null, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
+  let baseline = '', busy = false, pendingMessage = null, lastAutoAnswer = null, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
   const seen = new Set();
   function select(css) {
     try { return css ? [...document.querySelectorAll(css)] : []; } catch { return []; }
@@ -78,9 +78,9 @@
     document.addEventListener('keydown', cancelOnEscape, true);
     showPanel('請點選「' + ({ message:'對方訊息泡泡', input:'文字輸入框', send:'傳送按鈕' })[kind] + '」，按 Esc 可取消。');
   }
-  function inputAnswer(answer) {
+  function writeAnswer(answer) {
     const node = select(settings?.inputSelector)[0];
-    if (!node) return showPanel('找不到輸入框，請先在擴充功能重新選取。');
+    if (!node) return false;
     node.focus();
     if (node.isContentEditable) {
       node.textContent = answer;
@@ -91,8 +91,26 @@
       if (setter) setter.call(node, answer); else node.value = answer;
       node.dispatchEvent(new Event('input', { bubbles:true }));
       node.dispatchEvent(new Event('change', { bubbles:true }));
-    } else return showPanel('不支援此輸入框，請用複製功能。');
+    } else return false;
+    return true;
+  }
+  function inputAnswer(answer) {
+    if (!writeAnswer(answer)) return showPanel('找不到可用的輸入框，請重新選取或手動複製。', answer);
     showPanel('已填入輸入框，請由你確認後送出。', answer);
+  }
+  function isRestricted() { return /(^|\.)wootalk\.today$/i.test(location.hostname); }
+  function autoSend(answer) {
+    if (settings?.mode !== 'auto' || !settings?.autoAuthorized || isRestricted()) return false;
+    const send = select(settings.sendSelector)[0];
+    if (!send || !writeAnswer(answer)) {
+      showPanel('此網站的輸入框或送出鍵尚未設定，請改用人工發送。', answer);
+      return true;
+    }
+    try {
+      lastAutoAnswer = answer; send.click();
+      showPanel('已觸發網站的送出按鈕，請確認訊息是否成功送出。', answer);
+    } catch(e) { showPanel('網站發送失敗，請改用人工送出。', answer); }
+    return true;
   }
   function showPanel(text, answer = null) {
     if (panel) panel.remove();
@@ -138,7 +156,7 @@
       });
       if (pendingMessage && signature(pendingMessage) !== currentKey) return;
       if (!result?.ok) throw new Error(result?.error || 'unknown_error');
-      showPanel(result.text, result.text);
+      if (!autoSend(result.text)) showPanel(result.text, result.text);
     } catch(error) {
       if (!pendingMessage || signature(pendingMessage) === currentKey)
         showPanel('產生回覆失敗：' + String(error?.message || error));
@@ -153,6 +171,7 @@
     if (!settings?.enabled || !settings?.messageSelector || picker) return;
     const msg = latestMessage(), next = signature(msg);
     if (!next || next === baseline) return;
+    if (settings?.mode === 'auto' && lastAutoAnswer && msg?.text === lastAutoAnswer) { baseline = next; return; }
     if (!baseline) { baseline = next; return; }
     baseline = next;
     if (seen.has(next)) return;

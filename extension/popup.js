@@ -72,10 +72,23 @@ document.querySelectorAll('[data-pick]').forEach(button => button.addEventListen
   try { const r = await sendTab({ type: 'PICK', kind: button.dataset.pick }); if (!r.ok) throw new Error(r.error); window.close(); }
   catch (e) { notice(e.message); }
 }));
-$('replyMode').addEventListener('change', async () => {
+async function saveSite(changes) {
   const { chatbotSites = {} } = await chrome.storage.local.get('chatbotSites');
-  await chrome.storage.local.set({ chatbotSites: { ...chatbotSites, [origin]: { ...chatbotSites[origin], mode: $('replyMode').value } } });
-  notice('設定已儲存', true);
+  await chrome.storage.local.set({ chatbotSites: { ...chatbotSites, [origin]: { ...chatbotSites[origin], ...changes } } });
+}
+$('replyMode').addEventListener('change', async () => {
+  const mode = $('replyMode').value;
+  if (mode === 'auto' && !$('autoAuthorized').checked) {
+    $('replyMode').value = 'suggest';
+    return notice('必須先確認已獲網站自動化許可，才能啟用自動發送。');
+  }
+  await saveSite({ mode }); notice('模式已儲存', true);
+});
+$('autoAuthorized').addEventListener('change', async () => {
+  const checked = $('autoAuthorized').checked;
+  await saveSite({ autoAuthorized: checked, ...(!checked ? { mode:'suggest' } : {}) });
+  if (!checked) $('replyMode').value = 'suggest';
+  notice('授權設定已更新', true);
 });
 $('testBtn').addEventListener('click', async () => {
   try { const r = await sendTab({ type: 'TEST' }); if (!r.ok) throw new Error(r.error); notice('已送出測試，請查看網頁右下方。', true); }
