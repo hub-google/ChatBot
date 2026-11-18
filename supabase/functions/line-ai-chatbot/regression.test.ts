@@ -2,7 +2,7 @@ import {needsWebSearch,cleanupSearchQuery,parseRss} from "./search.ts";
 import {formatGroundedReply} from "./generation.ts";
 import type {WebLookup} from "./search.ts";
 import {safeEqual,verifyLine} from "./runtime.ts";
-import {shouldRespond} from "./line.ts";
+import {shouldRespond,replyMessages} from "./line.ts";
 
 function check(ok:unknown,label:string):asserts ok {
  if(!ok)throw new Error("FAIL: "+label);
@@ -67,4 +67,12 @@ Deno.test("signed webhook comparison rejects tampering",async()=>{
  check(await verifyLine(secret,body,signature),"valid HMAC");
  check(!(await verifyLine(secret,body+"x",signature)),"invalid HMAC");
  check(safeEqual("abc","abc")&&!safeEqual("abc","abd"),"comparison");
+});
+
+Deno.test("synthesized voice can be followed by a source text message",()=>{
+ const output=replyMessages([
+  {type:"audio",originalContentUrl:"https://example.com/sample.mp3",duration:2000},
+  {type:"text",text:"來源：https://example.com/weather"}
+ ]);
+ check(output.length===2&&output[0].type==="audio"&&output[1].type==="text","audio plus citation");
 });
