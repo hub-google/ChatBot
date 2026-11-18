@@ -1,6 +1,6 @@
 import {makeVoiceAnswer,VoiceError,cleanupOldVoiceFiles} from "./voice.ts";
 import {makeImageAnswer,ImageError,cleanupOldImageFiles} from "./image.ts";
-import {needsWebSearch,searchWebContext,cleanupSearchQuery} from "./search.ts";
+import {needsWebSearch,searchWebContext,lookupWeather,cleanupSearchQuery} from "./search.ts";
 
 type BotSecrets = {gemini_api_key:string|null;line_channel_secret:string|null;line_access_token:string|null};
 type LineEvent = {type?:string;webhookEventId?:string;replyToken?:string;source?:{type?:string;userId?:string;groupId?:string;roomId?:string};message?:{type?:string;text?:string;mention?:{mentionees?:Array<{type?:string;userId?:string;isSelf?:boolean}>}};timestamp?:number;deliveryContext?:{isRedelivery?:boolean}};
@@ -376,12 +376,19 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
         const lookup=await searchWebContext(question);
         if(lookup.status==="location_required"){
           response={text:"你想查哪個城市的天氣？例如台北、台中或高雄。",model:"Web Search：待指定地點"};
+        }else if(lookup.status==="unavailable"&&!lookup.answer){
+          // Transient external network failure: keep the existing durable task and retry.
+          // Never tell a LINE user that an API timeout is a permanent inability to search.
+          const delay=retryDelay(task.attempts+1);
+          await reschedule(task,delay,lookup.kind==="weather"?"weather_sources_unavailable":"web_sources_unavailable");
+          console.warn("chatbot_web_retry",lookup.kind,"attempt",task.attempts+1);
+          return delay;
         }else if(lookup.status==="unavailable"){
-          response={text:lookup.answer||"目前無法取得可核對的即時資訊，我先不亂猜。晚點再問我一次。",model:"Web Search：來源不可用"};
+          response={text:lookup.answer!,model:"Web Search：歷史資料不支援"};
         }else if(lookup.kind==="weather"){
           // Weather is a structured forecast, not a creative LLM task.
           // Never let Gemma ignore sourced data or claim it cannot access current conditions.
-          response={text:lookup.answer||"目前無法取得可核對的天氣預報。",model:"Open-Meteo：forecast"};
+          response={text:lookup.answer||"目前無法取得可核對的天氣預報。",model:"Weather:"+String(lookup.provider||"unknown")};
         }else{
           const cleanQuestion=cleanupSearchQuery(question)||question;
           response=await generateText(secrets.gemini_api_key!,cleanQuestion,hist,await loadKnowledge(cleanQuestion),lookup.context);
@@ -543,8 +550,8 @@ Deno.serve(async(request:Request):Promise<Response>=>{
         if(!provided||!allowed||!safeEqual(provided,allowed))
           return replyJson({error:"forbidden"},403);
         const routed=needsWebSearch(probe);
-        const lookup=routed?await searchWebContext(probe):null;
-        return replyJson({routed,kind:lookup?.kind||null,status:lookup?.status||null,answer:lookup?.answer||null,has_sources:Boolean(lookup?.sources.length)});
+        const lookup=routed?(new URL(request.url).searchParams.get("provider")==="backup"?await lookupWeather(probe,"backup"):await searchWebContext(probe)):null;
+        return replyJson({routed,kind:lookup?.kind||null,status:lookup?.status||null,provider:lookup?.provider||null,answer:lookup?.answer||null,has_sources:Boolean(lookup?.sources.length)});
       }catch{
         return replyJson({error:"probe_unavailable"},503);
       }
