@@ -148,3 +148,13 @@ FROM public."ChatBot_Line_pending";
 **驗證：** 已實測 Gemini TTS 回傳實際 PCM、轉換成約 4.5 秒 / 36 KB 的 `audio/mpeg`、私有簽署 URL HTTP 200、LINE 音訊 Reply 物件官方驗證 HTTP 200。未取得真實使用者的 LINE Reply Token，因此**尚未驗證語音真正送達 LINE 聊天室**。部署版 `line-ai-chatbot` 已移除自行設定的每日 200 次限制。
 
 **成本提醒：** Gemini TTS 的免費層級、Supabase Storage 容量及流量都有限制；**不設自訂每日語音次數上限**，只依 Google API 實際回傳的配額錯誤切換文字。高流量的零成本仍需監控。沒有啟用付費模型或 Cloudflare Worker。
+
+## #圖片：Gemini API 產圖（2026-11-18）
+
+- 使用者輸入如 `畫一隻白色貓 #圖片`，會先移除 `#圖片`，將剩餘描述送到 `gemini-2.5-flash-image:generateContent`，採用 `TEXT`、`IMAGE` 回傳模式。若同時包含 `#說話`，以產圖優先。
+- Gemini 真正回傳圖片後，使用 Supabase Storage 私有 Bucket `chatbot-line-image` 儲存，建立七日有效的簽署 URL；透過現有 LINE Reply API（逾時則由原有免費 Push 安全邏輯處理）回傳 LINE `image` 訊息，圖片網址與預覽網址一致。
+- 私訊可直接使用，群組仍需真正 @機器人。維持原有聊天室排隊、訊息去重與防舊訊息覆蓋機制；圖片不經 Gemma 文字回答模型轉述。
+- **不設定自行發明的每日產圖次數上限，也不啟用任何付費方案。** Gemini API 確實回傳 429／配額不足時會以文字回覆「Gemini 產圖額度不足，這次無法產圖。」而非假裝已成功產圖。其他失敗則回覆「Gemini 產圖暫時失敗，請稍後再試。」
+- **真實免費配額核對：** 2026-11-18 已以目前 LINE ChatBot Vault 中的 Google API Key 分別呼叫 `gemini-2.5-flash-image` 與 `gemini-3.1-flash-lite-image`，Google 都回傳 HTTP 429 並明確寫入 `generate_content_free_tier_requests limit: 0`。這是 Google 端配額設定，程式碼不能解除。只有該 API Key 獲得實際可用的免費產圖配額後才可能真正回圖；沒有啟用計費。
+- `image.ts`：Gemini 圖片生成、MIME／尺寸驗證、Supabase Storage 上傳與過期清理。圖片儲存及簽署 URL 並非永久圖庫（過期檔案採用機會式清理），需要另外規劃長期保存。
+- 目前已驗證 Gemini 免費配額回應、LINE 圖片訊息物件及 Edge Function 部署；尚未完成在有免費額度時真正生成圖片並傳送至真人 LINE 的端到端驗收。
