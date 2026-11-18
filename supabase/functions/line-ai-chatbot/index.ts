@@ -1,6 +1,6 @@
 
 type BotSecrets = {gemini_api_key:string|null;line_channel_secret:string|null;line_access_token:string|null};
-type LineEvent = {type?:string;webhookEventId?:string;replyToken?:string;source?:{type?:string;userId?:string;groupId?:string;roomId?:string};message?:{type?:string;text?:string;mention?:{mentionees?:Array<{userId?:string}>}};timestamp?:number;deliveryContext?:{isRedelivery?:boolean}};
+type LineEvent = {type?:string;webhookEventId?:string;replyToken?:string;source?:{type?:string;userId?:string;groupId?:string;roomId?:string};message?:{type?:string;text?:string;mention?:{mentionees?:Array<{type?:string;userId?:string;isSelf?:boolean}>}};timestamp?:number;deliveryContext?:{isRedelivery?:boolean}};
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void } | undefined;
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -35,7 +35,7 @@ async function restJson(path:string, options:RequestInit={}) {
   return (await rest(path,options)).json();
 }
 async function getSecrets(): Promise<BotSecrets> {
-  return await restJson("rpc/line_ai_runtime_secrets", {method:"POST",body:"{}"});
+  return await restJson("rpc/ChatBot_Line_runtime_secrets", {method:"POST",body:"{}"});
 }
 async function digestId(secret:string,id:string):Promise<string> {
   const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
@@ -51,7 +51,7 @@ async function verifyLine(secret:string, raw:string, signature:string|null):Prom
   return crypto.subtle.verify("HMAC",key,signatureBytes,new TextEncoder().encode(raw));
 }
 async function insertReceipt(eventId:string,userHash:string):Promise<boolean> {
-  const response=await rest("line_ai_events?on_conflict=event_id",{
+  const response=await rest("ChatBot_Line_events?on_conflict=event_id",{
     method:"POST",
     headers:{"Prefer":"return=representation,resolution=ignore-duplicates"},
     body:JSON.stringify([{event_id:eventId.slice(0,160),user_hash:userHash}])
@@ -60,7 +60,7 @@ async function insertReceipt(eventId:string,userHash:string):Promise<boolean> {
   return Array.isArray(rows) && rows.length === 1;
 }
 async function markReceipt(eventId:string,status:"completed"|"failed",err:string|null=null):Promise<void> {
-  await rest("line_ai_events?event_id=eq."+encodeURIComponent(eventId.slice(0,160)),{
+  await rest("ChatBot_Line_events?event_id=eq."+encodeURIComponent(eventId.slice(0,160)),{
     method:"PATCH",
     headers:{"Prefer":"return=minimal"},
     body:JSON.stringify({status,completed_at:new Date().toISOString(),error_code:err})
@@ -69,7 +69,7 @@ async function markReceipt(eventId:string,status:"completed"|"failed",err:string
 
 type ChatMeta={groupName:string;groupUuid:string;senderName:string;senderUuid:string;messageTime:string;aiModel:string};
 async function insertChat(hash:string,role:"user"|"model",content:string,meta:ChatMeta):Promise<void>{
-  await rest("line_ai_messages",{
+  await rest("ChatBot_Line_messages",{
     method:"POST",headers:{"Prefer":"return=minimal"},
     body:JSON.stringify({
       user_hash:hash,role,content:content.slice(0,4000),
@@ -111,25 +111,31 @@ async function messageIdentity(event:LineEvent,token:string){
   const [groupName,senderName]=await Promise.all([groupPromise,senderPromise]);
   return {groupName,groupUuid,senderName,senderUuid:userId||"未知"};
 }
-async function shouldRespond(event:LineEvent,token:string){
-  if(event.source?.type==="user"||(!event.source?.groupId&&!event.source?.roomId))return true;
-  const mentions=event.message?.mention?.mentionees||[];
-  if(!mentions.length)return false;
+async function shouldRespond(event:LineEvent,token:string):Promise<boolean>{
+  // Only one-to-one conversations reply automatically.
+  if(event.source?.type==="user") return true;
+  // Group/room messages must explicitly mention THIS bot, not another user
+  // or @all. LINE's isSelf is authoritative for bot mentions.
+  if(event.source?.type!=="group"&&event.source?.type!=="room") return false;
+  if(event.message?.type!=="text") return false;
+  const mentions=event.message?.mention?.mentionees;
+  if(!Array.isArray(mentions)||mentions.length===0) return false;
+  if(mentions.some(m=>m?.type==="user"&&m.isSelf===true)) return true;
   const botUserId=await lineLabel("bot-info","https://api.line.me/v2/bot/info",token,"userId","");
-  return Boolean(botUserId&&mentions.some(m=>m.userId===botUserId));
+  return Boolean(botUserId&&mentions.some(m=>m?.type==="user"&&m.userId===botUserId));
 }
 async function fetchHistory(userHash:string):Promise<{role:"user"|"model";content:string}[]> {
-  const path="line_ai_messages?user_hash=eq."+userHash+"&select=role,content&order=id.desc&limit=20";
+  const path="ChatBot_Line_messages?user_hash=eq."+userHash+"&select=role,content&order=id.desc&limit=20";
   const rows=await restJson(path);
   return (Array.isArray(rows)?rows:[]).reverse();
 }
 async function countUserMessages(userHash:string,since:string,max:number):Promise<number> {
-  const path="line_ai_messages?select=id&user_hash=eq."+userHash+"&role=eq.user&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
+  const path="ChatBot_Line_messages?select=id&user_hash=eq."+userHash+"&role=eq.user&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
   const rows=await restJson(path);
   return Array.isArray(rows)?rows.length:0;
 }
 async function countGlobalReplies(since:string,max:number):Promise<number> {
-  const path="line_ai_messages?select=id&role=eq.model&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
+  const path="ChatBot_Line_messages?select=id&role=eq.model&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
   const rows=await restJson(path);
   return Array.isArray(rows)?rows.length:0;
 }
@@ -199,7 +205,7 @@ async function sendReply(token:string,replyToken:string,answer:string):Promise<v
 async function cleanupExpired():Promise<void>{
   // Keep conversations, as the original Google Sheet did. Only prune event receipts.
   if(Math.random()>=0.001)return;
-  try{await rest("line_ai_events?received_at=lt."+encodeURIComponent(new Date(Date.now()-7*86400000).toISOString()),{method:"DELETE"});}
+  try{await rest("ChatBot_Line_events?received_at=lt."+encodeURIComponent(new Date(Date.now()-7*86400000).toISOString()),{method:"DELETE"});}
   catch{/* best effort */}
 }
 async function processEvent(event:LineEvent,secrets:BotSecrets):Promise<void>{
