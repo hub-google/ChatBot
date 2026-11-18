@@ -8,7 +8,6 @@ const PROJECT_URL = Deno.env.get("SUPABASE_URL") || "";
 const MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"] as const;
 const VOICE_TAG="#說話";
 const VOICE_QUOTA_TEXT="沒有Token說話了，只能打字回覆你啦。";
-const VOICE_DAILY_LIMIT=200;
 const DEFAULT_KNOWLEDGE_INDEX = "https://raw.githubusercontent.com/hub-google/ChatBot/main/Data/index.json";
 const KNOWLEDGE_INDEX = Deno.env.get("LINE_AI_KNOWLEDGE_INDEX") || DEFAULT_KNOWLEDGE_INDEX;
 const textHeaders = {"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"};
@@ -375,13 +374,6 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   let voiceModel="";
   if(voiceRequested){
     try{
-      const startOfDay=new Date(Date.now()+8*3600000).toISOString().slice(0,10)+"T00:00:00+08:00";
-      const rows=await restJson(encodeURIComponent("ChatBot_Line_對話紀錄")+
-        "?select=id&role=eq.model&"+encodeURIComponent("AI 模型")+
-        "=like.*TTS%3ALeda*&created_at=gte."+encodeURIComponent(startOfDay)+
-        "&limit="+(VOICE_DAILY_LIMIT+1));
-      if(Array.isArray(rows)&&rows.length>=VOICE_DAILY_LIMIT)
-        throw new VoiceError("quota","voice_daily_limit");
       const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,response.text);
       outbound={type:"audio",originalContentUrl:audio.originalContentUrl,duration:audio.duration};
       voiceModel=" | TTS:Leda";
