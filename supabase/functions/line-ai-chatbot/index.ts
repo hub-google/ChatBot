@@ -377,7 +377,11 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
         if(lookup.status==="location_required"){
           response={text:"你想查哪個城市的天氣？例如台北、台中或高雄。",model:"Web Search：待指定地點"};
         }else if(lookup.status==="unavailable"){
-          response={text:"目前無法取得可核對的即時資訊，我先不亂猜。晚點再問我一次。",model:"Web Search：來源不可用"};
+          response={text:lookup.answer||"目前無法取得可核對的即時資訊，我先不亂猜。晚點再問我一次。",model:"Web Search：來源不可用"};
+        }else if(lookup.kind==="weather"){
+          // Weather is a structured forecast, not a creative LLM task.
+          // Never let Gemma ignore sourced data or claim it cannot access current conditions.
+          response={text:lookup.answer||"目前無法取得可核對的天氣預報。",model:"Open-Meteo：forecast"};
         }else{
           const cleanQuestion=cleanupSearchQuery(question)||question;
           response=await generateText(secrets.gemini_api_key!,cleanQuestion,hist,await loadKnowledge(cleanQuestion),lookup.context);
