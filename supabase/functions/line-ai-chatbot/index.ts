@@ -1,4 +1,5 @@
 import {makeVoiceAnswer,VoiceError,cleanupOldVoiceFiles} from "./voice.ts";
+import {makeImageAnswer,ImageError,cleanupOldImageFiles} from "./image.ts";
 
 type BotSecrets = {gemini_api_key:string|null;line_channel_secret:string|null;line_access_token:string|null};
 type LineEvent = {type?:string;webhookEventId?:string;replyToken?:string;source?:{type?:string;userId?:string;groupId?:string;roomId?:string};message?:{type?:string;text?:string;mention?:{mentionees?:Array<{type?:string;userId?:string;isSelf?:boolean}>}};timestamp?:number;deliveryContext?:{isRedelivery?:boolean}};
@@ -7,6 +8,7 @@ declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void } | 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL") || "";
 const MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"] as const;
 const VOICE_TAG="#說話";
+const IMAGE_TAG="#圖片";
 const VOICE_QUOTA_TEXT="沒有Token說話了，只能打字回覆你啦。";
 const DEFAULT_KNOWLEDGE_INDEX = "https://raw.githubusercontent.com/hub-google/ChatBot/main/Data/index.json";
 const KNOWLEDGE_INDEX = Deno.env.get("LINE_AI_KNOWLEDGE_INDEX") || DEFAULT_KNOWLEDGE_INDEX;
@@ -200,7 +202,7 @@ async function generateText(apiKey:string,question:string,history:{role:"user"|"
   }
   throw new Error(lastError);
 }
-type LineReply={type:"text";text:string}|{type:"audio";originalContentUrl:string;duration:number};
+type LineReply={type:"text";text:string}|{type:"audio";originalContentUrl:string;duration:number}|{type:"image";originalContentUrl:string;previewImageUrl:string};
 function replyMessages(answer:string|LineReply):LineReply[]{
   return [typeof answer==="string"?{type:"text",text:answer.slice(0,4500)}:answer];
 }
@@ -344,10 +346,13 @@ async function modelRateLimit(hash:string):Promise<{delay:number;reason:string}|
 }
 async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<number|null>{
   const originalQuestion=await latestQuestion(task.latest_message_id);
-  const voiceRequested=originalQuestion.includes(VOICE_TAG);
-  const question=voiceRequested
-    ?(originalQuestion.replaceAll(VOICE_TAG,"").trim()||"和我聊幾句")
-    :originalQuestion;
+  const imageRequested=originalQuestion.includes(IMAGE_TAG);
+  const voiceRequested=!imageRequested&&originalQuestion.includes(VOICE_TAG);
+  const question=imageRequested
+    ?(originalQuestion.replaceAll(IMAGE_TAG,"").replaceAll(VOICE_TAG,"").trim()||"一張可愛的插畫")
+    :voiceRequested
+      ?(originalQuestion.replaceAll(VOICE_TAG,"").trim()||"和我聊幾句")
+      :originalQuestion;
   if(!question){
     await reschedule(task,3600000,"empty_or_missing_question");
     return null;
@@ -358,19 +363,36 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   // The newest text is already in the persisted history. Don't send it twice.
   if(hist.length&&hist[hist.length-1].role==="user"&&hist[hist.length-1].content===originalQuestion)hist.pop();
   let response:{text:string;model:string};
+  let picture:{originalContentUrl:string;previewImageUrl:string}|null=null;
   try{
-    response=await generateText(secrets.gemini_api_key!,question,hist,await loadKnowledge(question));
+    if(imageRequested){
+      const generated=await makeImageAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,question);
+      picture={originalContentUrl:generated.originalContentUrl,previewImageUrl:generated.previewImageUrl};
+      response={text:"【已產生圖片】"+question,model:generated.model};
+      if(Math.random()<0.05)later(cleanupOldImageFiles(PROJECT_URL,adminKey));
+    }else{
+      response=await generateText(secrets.gemini_api_key!,question,hist,await loadKnowledge(question));
+    }
   }catch(e){
-    const code=String(e instanceof Error?e.message:"model_error").slice(0,80);
-    const delay=code==="gemma_403"?3600000:code==="gemma_429"?120000:retryDelay(task.attempts+1);
-    await reschedule(task,delay,code);
-    console.warn("chatbot_model_retry",code,"attempt",task.attempts+1);
-    return delay;
+    if(imageRequested){
+      const isQuota=e instanceof ImageError&&e.reason==="quota";
+      response={text:isQuota?"Gemini 產圖額度不足，這次無法產圖。":"Gemini 產圖暫時失敗，請稍後再試。",
+        model:isQuota?"Gemini Image：配額不足":"Gemini Image：產圖失敗"};
+      console.warn("chatbot_image_fallback",e instanceof Error?e.message:"image_error");
+    }else{
+      const code=String(e instanceof Error?e.message:"model_error").slice(0,80);
+      const delay=code==="gemma_403"?3600000:code==="gemma_429"?120000:retryDelay(task.attempts+1);
+      await reschedule(task,delay,code);
+      console.warn("chatbot_model_retry",code,"attempt",task.attempts+1);
+      return delay;
+    }
   }
   // Critical latest-wins check: an older revision cannot transition to sending.
   if(!(await changeTask(task,"processing",{status:"sending"})))return null;
   let delivery:"sent"|"no_free_quota"="no_free_quota";
-  let outbound:string|LineReply=response.text;
+  let outbound:string|LineReply=picture
+    ?{type:"image",originalContentUrl:picture.originalContentUrl,previewImageUrl:picture.previewImageUrl}
+    :response.text;
   let voiceModel="";
   if(voiceRequested){
     try{
