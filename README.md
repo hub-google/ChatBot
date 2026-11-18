@@ -181,3 +181,21 @@ FROM public."ChatBot_Line_pending";
 - `GET /functions/v1/line-ai-chatbot?weather_probe=<已編碼的天氣問題>`：必須帶 `x-chatbot-worker`，與既有 Supabase Vault 排程密鑰一致才可執行；沒有授權會回 HTTP 403。
 - 回應僅包含路由結果、來源類型、查詢狀態和可公開的氣象預報，不含任何密鑰、LINE ID 或私人聊天記錄。僅允許天氣相關問題且限制問題長度。
 - 供後續查證「程式有部署，但實際路由沒有進搜尋」問題使用；不影響正式 LINE Webhook 流程。
+
+## 2026-11-18 13:07 修正：LINE 天氣查詢逾時
+
+**根因查證：** 使用者 12:53 的真實 LINE 訊息有進入 `line-ai-chatbot`。資料庫的實際回覆模型為 `Web Search：來源不可用`，並非忘記啟用路由。正式 `function_logs` 的 04:53:51 UTC 訊息為 `chatbot_weather_fetch_failed Signal timed out.`：Open-Meteo 一次約 4.8 秒超時，程式就把「目前無法取得……晚點再問」當正式回答送出。
+
+**修正（正式 v21 ACTIVE）：**
+- `search.ts` 的天氣 API 改成 **Open-Meteo + wttr.in 獨立雙來源備援**。先發主來源，500 毫秒仍未完成就並行啟動備援，採用第一個成功且有正確日期的資料；主來源超時不再直接回覆失敗。
+- 嚴格檢查台灣當地預報日期：今天／明天／後天／大後天。wttr.in 僅提供三天，查大後天必須由 Open-Meteo 提供，若暫不可用則維持 pending 重試，不謊報日期。
+- 只有 **成功結果** 才寫入記憶體快取，不能快取失敗結果污染後續重試。
+- `index.ts` 中兩來源皆不可用時，使用原本有持久化的 `reschedule()` 排程重試，保留最新訊息優先及原本 LINE Reply／免費 Push 安全額度檢查，**不再把網路超時當正式文字回答送出**。
+- 診斷 GET 的 `provider=backup` 只限帶有效工作金鑰，能驗證備援來源；正常 LINE 不需額外參數。
+
+**實際驗收：**
+- 正式部署 v21：`ACTIVE`。
+- 正式受保護 Edge 入口 `weather_probe=後天台北天氣如何` HTTP 200：`routed=true,status=ok,provider=Open-Meteo`，日期 11/20，來源與數值完整。
+- 正式受保護 Edge 入口加 `provider=backup` HTTP 200：`routed=true,status=ok,provider=wttr.in`，日期 11/20，氣溫、降雨機率等資料完整；主來源刻意跳過的情形，備援確實成功。
+- 以既有 12:53 群組目標，依 LINE OA 現有免費方案上限／預留額度發送 **一則修復實測訊息**；Messaging API Push 回 HTTP 200，回傳 `sentMessages`，代表 LINE 接受訊息。此為由 Supabase 直接透過 LINE Push API 的實際送出驗證，不是虛構使用者訊息；此次消耗一則可計費推播。
+- **限制：** 尚未有新的一則由真人 LINE @BOT 觸發 v21 的完整 Webhook→佇列→天氣查詢→LINE Reply 實測記錄，因此不能把上述路由／Push 分別測通說成整條實際觸發流程百分之百通過。
