@@ -39,7 +39,7 @@ export async function generateText(apiKey:string,question:string,history:{role:"
         headers:{"Content-Type":"application/json","x-goog-api-key":apiKey},
         body:JSON.stringify({
           systemInstruction:{role:"system",parts:[{text:prompt}]},contents,
-          generationConfig:{temperature:0.85,maxOutputTokens:250,thinkingConfig:{thinkingLevel:"minimal"}}
+          generationConfig:{temperature:webContext?0.55:0.85,maxOutputTokens:250,thinkingConfig:{thinkingLevel:"minimal"}}
         })
       });
       if(r.status===429){lastError="gemma_429";continue;}
@@ -65,8 +65,16 @@ export async function generateGroundedAnswer(
  apiKey:string,question:string,history:{role:"user"|"model";content:string}[],lookup:WebLookup
 ):Promise<{text:string;model:string}>{
  const plain=question.replace(/#(?:搜尋|查詢|上網)/gu,"").trim()||question;
- const model=await generateText(apiKey,plain,history,await loadKnowledge(plain),lookup.context);
- let body=model.text
+ let model:{text:string;model:string}|null=null;
+ try{
+  model=await generateText(apiKey,plain,history,await loadKnowledge(plain),lookup.context);
+ }catch(e){
+  if(lookup.kind!=="weather")throw e;
+  // Keep verified weather usable when both free language-model endpoints are busy.
+  // This is a friendly prose fallback, not the raw provider response.
+  console.warn("chatbot_weather_style_fallback",String(e instanceof Error?e.message:e).slice(0,70));
+ }
+ let body=(model?.text||"")
   .replace(/https?:\/\/\S+/g,"")
   .replace(/\n\s*(?:資料來源|參考資料|來源)\s*[：:].*$/s,"")
   .replace(/\[[1-9]\]/g,"")
@@ -89,5 +97,5 @@ export async function generateGroundedAnswer(
  const sources=lookup.sources.slice(0,lookup.kind==="weather"?1:2).map(s=>
   (s.title+" "+s.url).trim()).filter(Boolean);
  return {text:(body.slice(0,980)+(sources.length?"\n\n來源："+sources.join("\n"):"")).slice(0,1800),
-  model:model.model+" + Web:"+lookup.kind+(lookup.provider?":"+lookup.provider:"")};
+  model:(model?.model||"weather-style-fallback")+" + Web:"+lookup.kind+(lookup.provider?":"+lookup.provider:"")};
 }
