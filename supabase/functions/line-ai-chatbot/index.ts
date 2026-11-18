@@ -434,7 +434,7 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
       "?id=eq."+task.latest_message_id+"&select="+
       ["群組名稱","群組 UUID","發送者暱稱","發送者 UUID"].map(encodeURIComponent).join(",")+"&limit=1");
     const x=orig?.[0]||{};
-    await insertChat(task.user_hash,"model",response.text,{
+    await insertChat(task.user_hash,"model",typeof outbound==="string"?outbound:response.text,{
       groupName:x["群組名稱"]||"",groupUuid:x["群組 UUID"]||"",
       senderName:"BOT回應"+(x["發送者暱稱"]||""),
       senderUuid:"BOT回應"+(x["發送者 UUID"]||""),
