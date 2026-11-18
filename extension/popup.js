@@ -99,7 +99,10 @@ $('resetBtn').addEventListener('click', async () => {
   catch (e) { notice(e.message); }
 });
 $('disconnectBtn').addEventListener('click', async () => {
-  await chrome.runtime.sendMessage({ type: 'DISCONNECT' });
-  notice('本機配對已取消。伺服器端如需撤銷金鑰，請另行撤銷。', true); await load();
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'DISCONNECT' });
+    if (!result?.ok) throw new Error(result?.error || 'revoke_failed');
+    notice('裝置連線與伺服器金鑰已撤銷。', true); await load();
+  } catch(e) { notice('取消連接失敗：' + e.message); }
 });
 load().catch(e => notice(e.message));

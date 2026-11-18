@@ -53,6 +53,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.type === 'DISCONNECT') {
       if (sender.tab) throw new Error('forbidden');
+      const data = await chrome.storage.local.get(KEY);
+      if (data[KEY]) await requestAPI('/revoke', {}, data[KEY]);
       await chrome.storage.local.remove(KEY);
       return { ok: true };
     }

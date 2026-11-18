@@ -5,7 +5,9 @@
   const origin = location.origin;
   let settings = null;
   const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
-  let session = newId();
+  const SESSION_KEY = '__chatbot_session_v1__';
+  let session = sessionStorage.getItem(SESSION_KEY) || newId();
+  sessionStorage.setItem(SESSION_KEY, session);
   let baseline = '', busy = false, pendingMessage = null, lastAutoAnswer = null, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
   const seen = new Set();
   function select(css) {
@@ -192,7 +194,7 @@
         await runSuggestion(current); return {ok:true};
       }
       if (msg.type === 'RESET') {
-        session = newId();
+        session = newId(); sessionStorage.setItem(SESSION_KEY, session);
         seen.clear(); baseline = signature(latestMessage()); return {ok:true};
       }
       if (msg.type === 'STATUS') return {ok:true,active:Boolean(settings?.enabled),matched:select(settings?.messageSelector).length};
