@@ -64,7 +64,7 @@ messages.ts：成功傳送後紀錄回覆／模型，避免已發送訊息重送
 
 ## 排程、費用與安全
 
-- **持久化重試：** Gemma 優先 `gemma-4-26b-a4b-it`，失敗切換 `gemma-4-31b-it`；暫時失敗可依原有 `2／4／8／15／30 秒`退避。Supabase `pg_cron` 每 30 秒檢查待回覆任務，`pg_net` 負責喚起 `line-ai-chatbot`；新訊息優先。
+- **持久化重試：** Gemma 優先 `gemma-4-26b-a4b-it`，失敗切換 `gemma-4-31b-it`；兩者 503／逾時時，依序嘗試免費額度的 `gemini-3.5-flash-lite`、`gemini-2.5-flash-lite`（使用相同人設及知識庫，不自動啟用付費）；所有模型都失敗才依原有 `2／4／8／15／30 秒`退避。Supabase `pg_cron` 每 30 秒檢查待回覆任務，`pg_net` 負責喚起 `line-ai-chatbot`；新訊息優先。
 - **LINE 發送：** 40 秒內優先 Reply API；Reply Token 過期後才使用 Push，必須檢查免費額度並原子預留，現有保守上限為每月 190 則 Push。配額不可確認就不發付費 Push。
 - **聊天次數：** 不再設程式自訂的每分鐘／每日對話上限；仍受模型、Supabase、LINE 官方免費配額與防濫用保護約束。
 - **外部免費服務：** Open-Meteo 免費端點僅限符合其非商業使用政策的情況；公開 RSS／wttr.in 亦非無限資源。Gemma、TTS、產圖功能仍各自受 Google 免費配額限制，**不自動啟用付費 API**。
