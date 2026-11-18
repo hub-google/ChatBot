@@ -29,7 +29,8 @@ export function needsWebSearch(text:string):boolean{
  if(WEATHER.test(q) && (QUESTION.test(q)||LIVE_TIME.test(q)))return true;
  if(NEWS.test(q) && (QUESTION.test(q)||LIVE_TIME.test(q)))return true;
  if(LIVE_TOPIC.test(q)&&QUESTION.test(q))return true;
- if(LIVE_TIME.test(q)&&QUESTION.test(q))return true;
+ // A date word alone is not live-data intent: "今天吃什麼" is ordinary chat.
+ if(LIVE_TIME.test(q)&&QUESTION.test(q)&&/(?:政治|總統|首相|市長|部長|政府|政策|法規|交通|捷運|高鐵|火車|公車|營業|活動|演唱會|榜單|熱門|趨勢|發布|更新|變動)/.test(q))return true;
  return false;
 }
 export function cleanupSearchQuery(text:string):string{
@@ -102,9 +103,6 @@ function requestedForecastDay(question:string):{offset:number;label:string}|null
  if(question.includes("後天"))return {offset:2,label:"後天"};
  if(question.includes("明天"))return {offset:1,label:"明天"};
  return {offset:0,label:"今天"};
-}
-function weatherNumber(value:unknown,suffix:string):string{
- return typeof value==="number"&&Number.isFinite(value)?value+suffix:"未提供";
 }
 function forecastDate(days:number):string{
  return new Date(Date.now()+8*3600000+days*86400000).toISOString().slice(0,10);
