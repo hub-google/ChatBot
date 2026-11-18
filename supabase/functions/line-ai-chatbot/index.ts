@@ -1,3 +1,4 @@
+import {makeVoiceAnswer,VoiceError,cleanupOldVoiceFiles} from "./voice.ts";
 
 type BotSecrets = {gemini_api_key:string|null;line_channel_secret:string|null;line_access_token:string|null};
 type LineEvent = {type?:string;webhookEventId?:string;replyToken?:string;source?:{type?:string;userId?:string;groupId?:string;roomId?:string};message?:{type?:string;text?:string;mention?:{mentionees?:Array<{type?:string;userId?:string;isSelf?:boolean}>}};timestamp?:number;deliveryContext?:{isRedelivery?:boolean}};
@@ -5,6 +6,9 @@ declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void } | 
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL") || "";
 const MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"] as const;
+const VOICE_TAG="#說話";
+const VOICE_QUOTA_TEXT="沒有Token說話了，只能打字回覆你啦。";
+const VOICE_DAILY_LIMIT=200;
 const DEFAULT_KNOWLEDGE_INDEX = "https://raw.githubusercontent.com/hub-google/ChatBot/main/Data/index.json";
 const KNOWLEDGE_INDEX = Deno.env.get("LINE_AI_KNOWLEDGE_INDEX") || DEFAULT_KNOWLEDGE_INDEX;
 const textHeaders = {"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"};
@@ -197,11 +201,15 @@ async function generateText(apiKey:string,question:string,history:{role:"user"|"
   }
   throw new Error(lastError);
 }
-async function sendReply(token:string,replyToken:string,answer:string):Promise<void> {
+type LineReply={type:"text";text:string}|{type:"audio";originalContentUrl:string;duration:number};
+function replyMessages(answer:string|LineReply):LineReply[]{
+  return [typeof answer==="string"?{type:"text",text:answer.slice(0,4500)}:answer];
+}
+async function sendReply(token:string,replyToken:string,answer:string|LineReply):Promise<void> {
   const r=await fetch("https://api.line.me/v2/bot/message/reply",{
     method:"POST",
     headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
-    body:JSON.stringify({replyToken,messages:[{type:"text",text:answer.slice(0,4500)}]}),
+    body:JSON.stringify({replyToken,messages:replyMessages(answer)}),
     signal:AbortSignal.timeout(10000)
   });
   if(!r.ok) throw new Error("line_reply_"+r.status);
@@ -295,7 +303,7 @@ async function retryKey(eventId:string,revision:number):Promise<string>{
   return h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);
 }
 /** Monthly push is intentionally conservative: never buy overage messages. */
-async function sendFreePush(token:string,task:PendingTask,answer:string):Promise<"sent"|"no_free_quota">{
+async function sendFreePush(token:string,task:PendingTask,answer:string|LineReply):Promise<"sent"|"no_free_quota">{
   const headers={"Authorization":"Bearer "+token};
   const [quotaRes,usedRes]=await Promise.all([
     fetch("https://api.line.me/v2/bot/message/quota",{headers,signal:AbortSignal.timeout(6500)}),
@@ -318,7 +326,7 @@ async function sendFreePush(token:string,task:PendingTask,answer:string):Promise
     method:"POST",signal:AbortSignal.timeout(10000),
     headers:{"Content-Type":"application/json","Authorization":"Bearer "+token,
       "X-Line-Retry-Key":await retryKey(task.event_id,task.revision)},
-    body:JSON.stringify({to:task.target_id,messages:[{type:"text",text:answer.slice(0,4500)}]})
+    body:JSON.stringify({to:task.target_id,messages:replyMessages(answer)})
   });
   if(!r.ok)throw new Error("line_push_"+r.status);
   return "sent";
@@ -336,7 +344,11 @@ async function modelRateLimit(hash:string):Promise<{delay:number;reason:string}|
   return null;
 }
 async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<number|null>{
-  const question=await latestQuestion(task.latest_message_id);
+  const originalQuestion=await latestQuestion(task.latest_message_id);
+  const voiceRequested=originalQuestion.includes(VOICE_TAG);
+  const question=voiceRequested
+    ?(originalQuestion.replaceAll(VOICE_TAG,"").trim()||"和我聊幾句")
+    :originalQuestion;
   if(!question){
     await reschedule(task,3600000,"empty_or_missing_question");
     return null;
@@ -345,7 +357,7 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   if(rate){await reschedule(task,rate.delay,rate.reason);return null;}
   const hist=await fetchHistory(task.user_hash);
   // The newest text is already in the persisted history. Don't send it twice.
-  if(hist.length&&hist[hist.length-1].role==="user"&&hist[hist.length-1].content===question)hist.pop();
+  if(hist.length&&hist[hist.length-1].role==="user"&&hist[hist.length-1].content===originalQuestion)hist.pop();
   let response:{text:string;model:string};
   try{
     response=await generateText(secrets.gemini_api_key!,question,hist,await loadKnowledge(question));
@@ -359,11 +371,34 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   // Critical latest-wins check: an older revision cannot transition to sending.
   if(!(await changeTask(task,"processing",{status:"sending"})))return null;
   let delivery:"sent"|"no_free_quota"="no_free_quota";
+  let outbound:string|LineReply=response.text;
+  let voiceModel="";
+  if(voiceRequested){
+    try{
+      const startOfDay=new Date(Date.now()+8*3600000).toISOString().slice(0,10)+"T00:00:00+08:00";
+      const rows=await restJson(encodeURIComponent("ChatBot_Line_對話紀錄")+
+        "?select=id&role=eq.model&"+encodeURIComponent("AI 模型")+
+        "=like.*TTS%3ALeda*&created_at=gte."+encodeURIComponent(startOfDay)+
+        "&limit="+(VOICE_DAILY_LIMIT+1));
+      if(Array.isArray(rows)&&rows.length>=VOICE_DAILY_LIMIT)
+        throw new VoiceError("quota","voice_daily_limit");
+      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,response.text);
+      outbound={type:"audio",originalContentUrl:audio.originalContentUrl,duration:audio.duration};
+      voiceModel=" | TTS:Leda";
+      // Small, best-effort storage cleanup; never interrupt an actual reply.
+      if(Math.random()<0.05)later(cleanupOldVoiceFiles(PROJECT_URL,adminKey));
+    }catch(e){
+      const isQuota=e instanceof VoiceError && e.reason==="quota";
+      outbound=(isQuota?VOICE_QUOTA_TEXT:"語音暫時無法送出，先用文字回覆你：")+
+        "\n"+response.text;
+      console.warn("chatbot_voice_fallback",e instanceof Error?e.message:"voice_error");
+    }
+  }
   const token=secrets.line_access_token!;
   const canReply=Date.now()-Date.parse(task.queued_at)<40000;
   if(canReply){
     try{
-      await sendReply(token,task.reply_token,response.text);
+      await sendReply(token,task.reply_token,outbound);
       delivery="sent";
     }catch(e){
       const code=String(e instanceof Error?e.message:"line_reply_error");
@@ -377,7 +412,7 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
   }
   if(delivery!=="sent"){
     try{
-      delivery=await sendFreePush(token,task,response.text);
+      delivery=await sendFreePush(token,task,outbound);
     }catch(e){
       const code=String(e instanceof Error?e.message:"line_push_error");
       // Stable LINE retry key prevents duplicates if the push result was unknown.
@@ -403,7 +438,7 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
       groupName:x["群組名稱"]||"",groupUuid:x["群組 UUID"]||"",
       senderName:"BOT回應"+(x["發送者暱稱"]||""),
       senderUuid:"BOT回應"+(x["發送者 UUID"]||""),
-      messageTime:new Date().toISOString(),aiModel:response.model
+      messageTime:new Date().toISOString(),aiModel:response.model+voiceModel
     });
   }catch(e){console.error("chatbot_sent_log_failed",String(e).slice(0,120));}
   return null;
