@@ -167,11 +167,17 @@ FROM public."ChatBot_Line_pending";
 - **信任與錯誤處理：** 外部搜尋摘要僅作為資料而不是指令，Gemma 照原本的人格回應；當網路搜尋全失敗，回「目前無法取得可核對的即時資訊，我先不亂猜。晚點再問我一次。」而不是用舊知識假裝新資料。即時股價、選舉、比數等資訊仍要核對原始官方來源。
 - **免費優先：** 沒有綁定付費搜尋服務、Google Search Grounding 計費功能或 Cloudflare Worker；不會因為流量升高自動轉換付費 API。搜尋來源可能封鎖、限流或中斷，免費不等於無限額度。
 - **資源控制：** RSS 請求超時約 3.9 秒、氣象約 3.9 秒；有效結果於單一 Edge Function 執行個體記憶體中暫存 3 分鐘（天氣 5 分鐘），錯誤暫存 25 秒。沒有新增資料表或永久儲存搜尋內容，Edge Function 執行量及 Google 原本的文字回答模型仍受 Supabase／Google 免費配額限制。
-- **程式碼：** `supabase/functions/line-ai-chatbot/search.ts`（判斷需否查詢、搜尋與來源整理）、`index.ts`（接入已存在的聊天／重試／LINE 發送流程）。已部署 `line-ai-chatbot` v19（天氣日期修正）。
+- **程式碼：** `supabase/functions/line-ai-chatbot/search.ts`（判斷需否查詢、搜尋與來源整理）、`index.ts`（接入已存在的聊天／重試／LINE 發送流程）。已部署 `line-ai-chatbot` v20（天氣日期修正＋受保護的只讀搜尋驗證入口）。
 - **驗證：** 正式 Supabase v18 ACTIVE；服務健康檢查 HTTP 200、已設定機密；由 Supabase 網路對 Open-Meteo、Bing RSS、Google 新聞 RSS 實測 HTTP 200，分別取得氣象 JSON／10 筆 Bing RSS 項目／100 筆 Google 新聞 RSS 項目。**尚未透過真人 LINE 聊天驗收完整「訊息→搜尋→Gemma 回覆→LINE 發送」流程**；來源可用性可能隨時改變。
 
 ### 2026-11-18 截圖問題修復與驗收
 
 - 真實聊天紀錄顯示 12:36「@BOT 後天台北天氣如何」獲得無法查天氣的回覆，`AI 模型` 僅有 Gemma 名稱，沒有網路查詢記號；因此前一版的已部署／來源 API 200，**不足以證明 LINE 實際回覆已使用搜尋**。
 - 現在使用 `requestedForecastDay` 解析明天／後天／大後天，從 Open-Meteo 的 `daily.time` 與相同索引的每日欄位取數值，直接輸出日期、氣溫、降雨機率、來源；避免把今日氣溫錯當後天。
-- 從 Supabase 端以正式預報 URL 呼叫，HTTP 200，`daily.time[2]` 為 `2026-11-20`，含高低溫與降雨機率；程式和運行版本已一致。仍需真人 LINE 新訊息端到端測試，驗證資料庫 `AI 模型` 欄出現 `Open-Meteo：forecast`，不能把 API 測通等同 LINE 實測通過。
+- 由 Supabase 端呼叫**正式部署的 ChatBot `GET ?weather_probe=...` 受保護入口**，使用原句 `@BOT 後天台北天氣如何`，回傳 HTTP 200、`routed:true`、`kind:weather`、`status:ok`、11/20 對應預報。`明天台中天氣如何` 與 `今天台北天氣如何` 也回傳相應預報，未帶工作金鑰的測試請求回 HTTP 403。此探針不寫對話、不消耗 Gemma、不發 LINE；**仍需真人 LINE 重新測試新訊息**，驗證資料庫 `AI 模型` 欄為 `Open-Meteo：forecast`，不可把內部驗收冒充真人 LINE 投遞驗收。
+
+### 只讀天氣診斷入口（授權保護）
+
+- `GET /functions/v1/line-ai-chatbot?weather_probe=<已編碼的天氣問題>`：必須帶 `x-chatbot-worker`，與既有 Supabase Vault 排程密鑰一致才可執行；沒有授權會回 HTTP 403。
+- 回應僅包含路由結果、來源類型、查詢狀態和可公開的氣象預報，不含任何密鑰、LINE ID 或私人聊天記錄。僅允許天氣相關問題且限制問題長度。
+- 供後續查證「程式有部署，但實際路由沒有進搜尋」問題使用；不影響正式 LINE Webhook 流程。
