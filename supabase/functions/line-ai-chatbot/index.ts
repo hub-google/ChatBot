@@ -69,12 +69,12 @@ async function markReceipt(eventId:string,status:"completed"|"failed",err:string
 
 type ChatMeta={groupName:string;groupUuid:string;senderName:string;senderUuid:string;messageTime:string;aiModel:string};
 async function insertChat(hash:string,role:"user"|"model",content:string,meta:ChatMeta):Promise<void>{
-  await rest("ChatBot_Line_messages",{
+  await rest(encodeURIComponent("ChatBot_Line_對話紀錄"),{
     method:"POST",headers:{"Prefer":"return=minimal"},
     body:JSON.stringify({
-      user_hash:hash,role,content:content.slice(0,4000),
-      message_time:meta.messageTime,group_name:meta.groupName,group_uuid:meta.groupUuid,
-      sender_name:meta.senderName,sender_uuid:meta.senderUuid,ai_model:meta.aiModel
+      user_hash:hash,role,"對話內容":content.slice(0,4000),
+      "對話時間":meta.messageTime,"群組名稱":meta.groupName,"群組 UUID":meta.groupUuid,
+      "發送者暱稱":meta.senderName,"發送者 UUID":meta.senderUuid,"AI 模型":meta.aiModel
     })
   });
 }
@@ -125,17 +125,17 @@ async function shouldRespond(event:LineEvent,token:string):Promise<boolean>{
   return Boolean(botUserId&&mentions.some(m=>m?.type==="user"&&m.userId===botUserId));
 }
 async function fetchHistory(userHash:string):Promise<{role:"user"|"model";content:string}[]> {
-  const path="ChatBot_Line_messages?user_hash=eq."+userHash+"&select=role,content&order=id.desc&limit=20";
+  const path=encodeURIComponent("ChatBot_Line_對話紀錄")+"?user_hash=eq."+userHash+"&select=role,"+encodeURIComponent("對話內容")+"&order=id.desc&limit=20";
   const rows=await restJson(path);
-  return (Array.isArray(rows)?rows:[]).reverse();
+  return (Array.isArray(rows)?rows:[]).reverse().map(r=>({role:r.role,content:r["對話內容"]}));
 }
 async function countUserMessages(userHash:string,since:string,max:number):Promise<number> {
-  const path="ChatBot_Line_messages?select=id&user_hash=eq."+userHash+"&role=eq.user&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
+  const path=encodeURIComponent("ChatBot_Line_對話紀錄")+"?select=id&user_hash=eq."+userHash+"&role=eq.user&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
   const rows=await restJson(path);
   return Array.isArray(rows)?rows.length:0;
 }
 async function countGlobalReplies(since:string,max:number):Promise<number> {
-  const path="ChatBot_Line_messages?select=id&role=eq.model&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
+  const path=encodeURIComponent("ChatBot_Line_對話紀錄")+"?select=id&role=eq.model&created_at=gte."+encodeURIComponent(since)+"&limit="+(max+1);
   const rows=await restJson(path);
   return Array.isArray(rows)?rows.length:0;
 }
