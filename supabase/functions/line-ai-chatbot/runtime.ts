@@ -1,4 +1,4 @@
-export type BotSecrets = {gemini_api_key:string|null;line_channel_secret:string|null;line_access_token:string|null};
+export type BotSecrets = {gemini_api_key:string|null;fish_audio_api_key:string|null;line_channel_secret:string|null;line_access_token:string|null};
 export type LineEvent = {type?:string;webhookEventId?:string;replyToken?:string;source?:{type?:string;userId?:string;groupId?:string;roomId?:string};message?:{type?:string;text?:string;mention?:{mentionees?:Array<{type?:string;userId?:string;isSelf?:boolean}>}};timestamp?:number;deliveryContext?:{isRedelivery?:boolean}};
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void } | undefined;
 
