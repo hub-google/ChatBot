@@ -47,9 +47,28 @@ export async function shouldRespond(event:LineEvent,token:string):Promise<boolea
   return Boolean(botUserId&&mentions.some(m=>m?.type==="user"&&m.userId===botUserId));
 }
 
+/** Split long text across LINE's five-message reply batch; never silently discard text. */
 export function replyMessages(answer:OutboundMessage):LineReply[]{
-  const messages=Array.isArray(answer)?answer:[typeof answer==="string"?{type:"text" as const,text:answer.slice(0,4500)}:answer];
-  return messages.slice(0,5);
+  const provided:LineReply[]=Array.isArray(answer)?answer:
+    [typeof answer==="string"?{type:"text",text:answer}:answer];
+  const messages:LineReply[]=[];
+  for(const item of provided){
+    if(item.type!=="text"){messages.push(item);continue;}
+    const body=item.text;
+    for(let pos=0;pos<body.length;){
+      let end=Math.min(pos+4500,body.length);
+      if(end<body.length){
+        const newline=body.lastIndexOf("\n",end-1);
+        if(newline>pos+2800)end=newline+1;
+        else if(/[\uD800-\uDBFF]/.test(body[end-1]))end--;
+      }
+      messages.push({type:"text",text:body.slice(pos,end)});
+      pos=end;
+    }
+  }
+  if(messages.length===0||messages.length>5)
+    throw new Error("line_message_count_exceeded");
+  return messages;
 }
 export async function sendReply(token:string,replyToken:string,answer:OutboundMessage):Promise<void> {
   const r=await fetch("https://api.line.me/v2/bot/message/reply",{
