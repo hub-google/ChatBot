@@ -1,5 +1,5 @@
 import {needsWebSearch,cleanupSearchQuery,parseRss} from "./search.ts";
-import {formatGroundedReply} from "./generation.ts";
+import {formatGroundedReply,generateText,isIncompleteModelReply} from "./generation.ts";
 import type {WebLookup} from "./search.ts";
 import {safeEqual,verifyLine,MODELS,BACKUP_MODELS} from "./runtime.ts";
 import {shouldRespond,replyMessages} from "./line.ts";
@@ -92,4 +92,63 @@ Deno.test("Fish free cute voice is default and previous Gemini voices remain sel
  check(explicit.voiceName==="萌妹"&&explicit.text==="嗨！","explicit cute parser");
  const legacy=parseVoiceCommand("#說話:Leda 嗨");
  check(legacy.voiceName==="Leda"&&legacy.text==="嗨","Gemini fallback voice remains selectable");
+});
+
+Deno.test("Gemma's truncated output is completed before returning, without a 1000-character cut",async()=>{
+  const originalFetch=globalThis.fetch;
+  let calls=0;
+  const first="第一步："+("計算".repeat(550))+"\n2.";
+  try{
+    globalThis.fetch=async (_input,init)=>{
+      const payload=JSON.parse(String(init?.body||"{}"));
+      check(payload.generationConfig.maxOutputTokens>=2048,"sufficient model output budget");
+      calls++;
+      if(calls===2)check(payload.contents.some((x:{role:string})=>x.role==="model"),"continue from prior model response");
+      return new Response(JSON.stringify({candidates:[{
+        finishReason:calls===1?"MAX_TOKENS":"STOP",
+        content:{parts:[{text:calls===1?first:"最後答案是 42。"}]}
+      }]}),{status:200});
+    };
+    const generated=await generateText("fake-key","請完整計算",[],"");
+    check(calls===2,"continuation is requested exactly once");
+    check(generated.text===first+"最後答案是 42。","both pieces are returned without truncation");
+    check(generated.text.length>1000,"answer passes old 1000-char cap");
+  }finally{globalThis.fetch=originalFetch;}
+});
+
+Deno.test("an exhausted continuation never sends an unfinished answer",async()=>{
+  const originalFetch=globalThis.fetch;
+  let calls=0;
+  try{
+    globalThis.fetch=async ()=>{
+      calls++;
+      return new Response(JSON.stringify({candidates:[{
+        finishReason:"MAX_TOKENS",content:{parts:[{text:"3."}]}
+      }]}),{status:200});
+    };
+    let failed=false;
+    try{await generateText("fake-key","解完整題",[],"");}
+    catch(e){failed=String(e).includes("ai_reply_incomplete");}
+    check(failed,"incomplete response raises an error for the existing durable retry queue");
+    check(calls===(MODELS.length+BACKUP_MODELS.length)*3,"tries free model fallback, never sends a partial reply");
+  }finally{globalThis.fetch=originalFetch;}
+});
+
+Deno.test("LINE splits long replies without losing words or surrogate pairs",()=>{
+  const longText="題目說明\n"+("算式與結果😀".repeat(900))+"\n最後結論。";
+  const messages=replyMessages(longText);
+  check(messages.length>1 && messages.length<=5,"long reply uses a valid batch");
+  check(messages.every(m=>m.type==="text"&&m.text.length<=4500),"each text stays within LINE bounds");
+  check(messages.map(m=>m.type==="text"?m.text:"").join("")===longText,"no content is lost");
+  check(isIncompleteModelReply("第一步\n3.","STOP"),"unfinished numbered step is detected");
+  let overflow=false;
+  try{replyMessages("字".repeat(22501));}catch{overflow=true;}
+  check(overflow,"oversized batches fail explicitly rather than silently truncating");
+});
+
+Deno.test("grounded long-form answer is not clipped before LINE splitting",()=>{
+  const longText="台北後天 14～16 度。"+"文字".repeat(650);
+  const result=formatGroundedReply(longText,weather);
+  check(result.includes("文字".repeat(650)),"long model summary is preserved");
+  check(result.includes("來源："),"verified source footer remains");
 });
