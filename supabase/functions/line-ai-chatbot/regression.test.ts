@@ -3,6 +3,7 @@ import {formatGroundedReply} from "./generation.ts";
 import type {WebLookup} from "./search.ts";
 import {safeEqual,verifyLine,MODELS,BACKUP_MODELS} from "./runtime.ts";
 import {shouldRespond,replyMessages} from "./line.ts";
+import {parseVoiceCommand,DEFAULT_VOICE_NAME} from "./voice.ts";
 
 function check(ok:unknown,label:string):asserts ok {
  if(!ok)throw new Error("FAIL: "+label);
@@ -81,4 +82,14 @@ Deno.test("synthesized voice can be followed by a source text message",()=>{
   {type:"text",text:"來源：https://example.com/weather"}
  ]);
  check(output.length===2&&output[0].type==="audio"&&output[1].type==="text","audio plus citation");
+});
+
+Deno.test("Fish free cute voice is default and previous Gemini voices remain selectable",()=>{
+ check(DEFAULT_VOICE_NAME==="萌妹","cute voice default");
+ const normal=parseVoiceCommand("今天台北天氣如何 #說話");
+ check(normal.requested&&normal.voiceName==="萌妹"&&normal.text==="今天台北天氣如何","default parser");
+ const explicit=parseVoiceCommand("#說話:萌妹 嗨！");
+ check(explicit.voiceName==="萌妹"&&explicit.text==="嗨！","explicit cute parser");
+ const legacy=parseVoiceCommand("#說話:Leda 嗨");
+ check(legacy.voiceName==="Leda"&&legacy.text==="嗨","Gemini fallback voice remains selectable");
 });
