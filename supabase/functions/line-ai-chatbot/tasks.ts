@@ -131,7 +131,7 @@ async function processClaimed(task:PendingTask,secrets:BotSecrets):Promise<numbe
       // Speak only the conversational answer; follow it with citations as text.
       const citationAt=response.text.indexOf("\n\n來源：");
       const spoken=citationAt>=0?response.text.slice(0,citationAt):response.text;
-      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,spoken,voiceCommand.voiceName);
+      const audio=await makeVoiceAnswer(secrets.gemini_api_key!,PROJECT_URL,adminKey,spoken,voiceCommand.voiceName,secrets.fish_audio_api_key);
       const audioMessage={type:"audio" as const,originalContentUrl:audio.originalContentUrl,duration:audio.duration};
       outbound=citationAt>=0?[audioMessage,{type:"text",text:response.text.slice(citationAt+2)}]:audioMessage;
       voiceModel=" | TTS:"+audio.voiceName;
