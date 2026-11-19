@@ -35,7 +35,7 @@ messages.ts：成功傳送後紀錄回覆／模型，避免已發送訊息重送
 | `line.ts` | 群組提及判定、LINE Reply／Push、免費 Push 安全保護 |
 | `generation.ts` | GitHub 知識庫、Gemma 共用人設、資料摘要與唯一的來源格式化 |
 | `search.ts` | 即時搜尋意圖、RSS、天氣主備來源、成功結果快取 |
-| `voice.ts` | `#說話` 參數、Gemini TTS、MP3 與私有音檔儲存 |
+| `voice.ts` | `#說話` 參數、Fish Audio 免費 TTS（萌妹）／Gemini 備援、MP3 與私有音檔儲存 |
 | `image.ts` | `#圖片`、Gemini 圖片生成與私有檔案儲存 |
 | `regression.test.ts` | 搜尋路由、人設摘要、來源安全、LINE 提及及簽章的回歸測試 |
 
@@ -58,7 +58,7 @@ messages.ts：成功傳送後紀錄回覆／模型，避免已發送訊息重送
 | --- | --- |
 | 一般文字 | Gemma 自然回覆；符合時效問題才搜尋 |
 | `#搜尋 問題` | 強制搜尋，整理後附來源 |
-| `#說話` | Gemini 以預設 `Leda` 聲線朗讀回答 |
+| `#說話`、`#說話:萌妹` | Fish Audio `s2.1-pro-free` 模型，以「調侃可愛小女孩」聲線朗讀；免費模型無法使用時改用 Gemini `Leda` |
 | `#說話:Zephyr`、`#說話:Leda`、`#說話:Aoede` | 選擇支援的語音聲線 |
 | `#圖片 描述` | Gemini 產生圖片；搜尋與語音不會取代產圖 |
 
@@ -68,7 +68,7 @@ messages.ts：成功傳送後紀錄回覆／模型，避免已發送訊息重送
 - **LINE 發送：** 40 秒內優先 Reply API；Reply Token 過期後才使用 Push，必須檢查免費額度並原子預留，現有保守上限為每月 190 則 Push。配額不可確認就不發付費 Push。
 - **聊天次數：** 不再設程式自訂的每分鐘／每日對話上限；仍受模型、Supabase、LINE 官方免費配額與防濫用保護約束。
 - **外部免費服務：** Open-Meteo 免費端點僅限符合其非商業使用政策的情況；公開 RSS／wttr.in 亦非無限資源。Gemma、TTS、產圖功能仍各自受 Google 免費配額限制，**不自動啟用付費 API**。
-- **秘密：** LINE Channel Secret、Access Token、Gemini Key 存於 Supabase Vault，由 `ChatBot_Line_runtime_secrets` 提供。Webhook 必須驗證簽章，排程與診斷必須驗證 Vault 工作金鑰。密鑰不可寫入 GitHub、公開前端或 README。
+- **秘密：** LINE Channel Secret、Access Token、Gemini Key、Fish Audio Key 存於 Supabase Vault，由僅限 service_role 的 `ChatBot_Line_runtime_secrets` 提供。GitHub／README 不存 API 金鑰。Webhook 必須驗證簽章，排程與診斷必須驗證 Vault 工作金鑰。密鑰不可寫入 GitHub、公開前端或 README。
 - **資料：** 對話保留在原有表；私有語音／圖片以約 7 日有效的簽署網址發送。不要假設過期影音會立即清理，需監控儲存空間。
 
 ## 測試與部署
@@ -110,3 +110,10 @@ Chrome 擴充功能見 `extension/`：配對碼一次性兌換裝置權杖、個
 - **專案紀律**：不新增 Cloudflare Worker、無 20 秒無條件輪詢。僅在已存在未完成 LINE 任務時由 Supabase 原有排程觸發。沒有自訂每日／每分鐘聊天回覆硬上限，但仍受外部免費配額及防濫用要求限制。
 - **原始碼**：`supabase/functions/_shared/channel-engine.ts` 共用官方平台的 AI 生成及對話紀錄流程；`docs/official-chat-adapters.md` 說明憑證設定。
 - **已驗收**：Chrome 基礎訊息偵測、連續訊息最新優先、自動送出授權控制模擬測試。實際 WooTalk DOM／真人 LINE 新訊息／Telegram 與 Discord 官方端到端仍受站方服務或使用者帳號設定限制。
+
+## 2026-11-19：免費萌妹語音
+
+- 預設 `#說話` 透過 Fish Audio 官方 `POST /v1/tts`，明確指定 HTTP header `model: s2.1-pro-free`、聲線 `reference_id: 8289a1de1c9448719c9ccaf12fe96492`；模型不可自動改為付費 `s2.1-pro`／`drama-3`。
+- `#說話:Leda`、`#說話:Zephyr`、`#說話:Aoede` 仍指定原本 Gemini TTS。Fish API 發生超時／配額／聲線授權失敗時，才降級用 Gemini `Leda`；如果兩者都失敗，保留既有文字回覆。
+- Fish API Key 僅放 Supabase Vault 名稱 `chatbot_fish_audio_api_key`。`ChatBot_Line_runtime_secrets` 回傳的 `fish_audio_api_key` 僅提供 Edge Function service_role 使用。GitHub Actions Secrets 僅適合 CI/CD 情境，不是 Edge Function 執行時直接讀取的金鑰來源。
+- Fish Audio 的免費服務截至 2026-11-30 仍可能調整公平使用限制、可用性與商用授權；僅明確使用免費模型。公開聲線的 API 存取權須以實際合成測試確認。
