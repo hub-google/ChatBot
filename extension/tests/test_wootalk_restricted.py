@@ -23,7 +23,13 @@ with sync_playwright() as p:
     page.goto("about:blank")
     page.set_content(html)
     page.evaluate("""() => {
-        window._calls=[];window._handlers=[];window._saved=[];
+        window._calls=[];window._handlers=[];window._saved=[];window._shadowRoots=[];
+        const attachShadow = Element.prototype.attachShadow;
+        Element.prototype.attachShadow = function(options) {
+            const root = attachShadow.call(this, options);
+            window._shadowRoots.push(root);
+            return root;
+        };
         window._site={enabled:true,messageSelector:'.incoming',inputSelector:'#input',sendSelector:'#send',mode:'fill',autoAuthorized:true};
         window.chrome={
             runtime:{
@@ -50,7 +56,14 @@ with sync_playwright() as p:
     assert page.locator("#counter").inner_text()=="0"
     assert page.locator("#input").input_value()==""
     # The assistant panel is intentionally a closed Shadow DOM. Click its visible Fill button.
-    page.mouse.click(1058,670)
+    # Click the actual Fill button, not a viewport-specific pixel coordinate.
+    # Capture the closed shadow root during test setup while leaving it closed.
+    page.evaluate("""() => {
+        const root = window._shadowRoots.at(-1);
+        const fill = [...(root?.querySelectorAll('button') || [])].find(b => b.textContent === '填入');
+        if (!fill) throw new Error('Fill button missing');
+        fill.click();
+    }""")
     page.wait_for_timeout(150)
     assert page.locator("#input").input_value()=="AI 建議測試文字", "Fill action failed"
     assert page.locator("#counter").inner_text()=="0", "Fill action must not send"
