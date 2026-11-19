@@ -116,4 +116,4 @@ Chrome 擴充功能見 `extension/`：配對碼一次性兌換裝置權杖、個
 - 預設 `#說話` 透過 Fish Audio 官方 `POST /v1/tts`，明確指定 HTTP header `model: s2.1-pro-free`、聲線 `reference_id: 8289a1de1c9448719c9ccaf12fe96492`；模型不可自動改為付費 `s2.1-pro`／`drama-3`。
 - `#說話:Leda`、`#說話:Zephyr`、`#說話:Aoede` 仍指定原本 Gemini TTS。Fish API 發生超時／配額／聲線授權失敗時，才降級用 Gemini `Leda`；如果兩者都失敗，保留既有文字回覆。
 - Fish API Key 僅放 Supabase Vault 名稱 `chatbot_fish_audio_api_key`。`ChatBot_Line_runtime_secrets` 回傳的 `fish_audio_api_key` 僅提供 Edge Function service_role 使用。GitHub Actions Secrets 僅適合 CI/CD 情境，不是 Edge Function 執行時直接讀取的金鑰來源。
-- Fish Audio 的免費服務截至 2026-11-30 仍可能調整公平使用限制、可用性與商用授權；僅明確使用免費模型。公開聲線的 API 存取權須以實際合成測試確認。
+- Fish Audio 的免費服務截至 2026-11-30 仍可能調整公平使用限制、可用性與商用授權；僅明確使用免費模型。2026-11-19 已在 Supabase 後端透過 Vault 金鑰實測免費模型＋指定公開聲線，Fish API 回傳 HTTP 200、Content-Type: audio/mpeg；因 pg_net 以文字欄位處理二進位音訊，未在此完成完整 MP3 播放驗證，真人 LINE `#說話` 端到端播放尚待實測。
