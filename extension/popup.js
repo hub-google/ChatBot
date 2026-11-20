@@ -1,6 +1,7 @@
 'use strict';
 let origin = null, tabId = null;
 const $ = id => document.getElementById(id);
+function restrictedSite() { return Boolean(origin && /(^|\\.)wootalk\\.today$/i.test(new URL(origin).hostname)); }
 function notice(text, ok = false) { $('notice').textContent = text; $('notice').className = ok ? 'ok' : ''; }
 function address(url) {
   try { const u = new URL(url); return ['https:', 'http:'].includes(u.protocol) ? u.origin : null; }
@@ -21,7 +22,12 @@ async function load() {
   const { chatbotSites = {} } = await chrome.storage.local.get('chatbotSites');
   const site = chatbotSites[origin] || {};
   $('enableSite').hidden = !!site.enabled; $('disableSite').hidden = !site.enabled;
-  $('siteArea').hidden = !site.enabled; $('replyMode').value = site.mode || 'suggest';
+  $('siteArea').hidden = !site.enabled;
+  const restricted = restrictedSite();
+  $('replyMode').querySelector('option[value="auto"]').disabled = restricted;
+  $('replyMode').value = restricted && site.mode === 'auto' ? 'fill' : (site.mode || 'suggest');
+  $('autoAuthorized').checked = Boolean(site.autoAuthorized) && !restricted;
+  $('autoAuthorized').disabled = restricted;
   const labels = [['messageSelector', '訊息'], ['inputSelector', '輸入框'], ['sendSelector', '傳送鍵']];
   $('selectorStatus').textContent = labels.map(([key, name]) => name + '：' + (site[key] ? '已選取' : '未設定')).join('　');
 }
@@ -78,6 +84,10 @@ async function saveSite(changes) {
 }
 $('replyMode').addEventListener('change', async () => {
   const mode = $('replyMode').value;
+  if (mode === 'auto' && restrictedSite()) {
+    $('replyMode').value = 'fill';
+    return notice('WooTalk 目前僅支援手動產生 AI 建議與確認送出，不能啟用自動聊天。');
+  }
   if (mode === 'auto' && !$('autoAuthorized').checked) {
     $('replyMode').value = 'suggest';
     return notice('必須先確認已獲網站自動化許可，才能啟用自動發送。');
@@ -85,6 +95,10 @@ $('replyMode').addEventListener('change', async () => {
   await saveSite({ mode }); notice('模式已儲存', true);
 });
 $('autoAuthorized').addEventListener('change', async () => {
+  if (restrictedSite()) {
+    $('autoAuthorized').checked = false;
+    return notice('WooTalk 目前不支援自動發送。');
+  }
   const checked = $('autoAuthorized').checked;
   await saveSite({ autoAuthorized: checked, ...(!checked ? { mode:'suggest' } : {}) });
   if (!checked) $('replyMode').value = 'suggest';
