@@ -15,6 +15,7 @@ html = """<!doctype html><meta charset="utf-8">
   const outgoing=document.createElement('div');outgoing.className='outgoing';
   outgoing.textContent=document.querySelector('#input').value;
   document.querySelector('#chat').appendChild(outgoing);
+  document.querySelector('#input').value='';
 }</script>"""
 setup = """(opts) => {
  window._calls=[];window._handlers=[];window._roots=[];window._pending=[];window._defer=false;
