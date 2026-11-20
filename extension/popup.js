@@ -1,7 +1,7 @@
 'use strict';
 let origin = null, tabId = null;
 const $ = id => document.getElementById(id);
-function restrictedSite() { return Boolean(origin && /(^|\\.)wootalk\\.today$/i.test(new URL(origin).hostname)); }
+function restrictedSite() { return Boolean(origin && /(^|\.)wootalk\.today$/i.test(new URL(origin).hostname)); }
 function notice(text, ok = false) { $('notice').textContent = text; $('notice').className = ok ? 'ok' : ''; }
 function address(url) {
   try { const u = new URL(url); return ['https:', 'http:'].includes(u.protocol) ? u.origin : null; }
