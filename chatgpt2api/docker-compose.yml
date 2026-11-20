@@ -2,7 +2,7 @@
 # The "public" profile exposes API/files over HTTPS, not the admin panel.
 services:
   app:
-    image: ${CHATGPT2API_IMAGE:-ghcr.io/yukkcat/chatgpt2api:v3.2.3}
+    image: ${CHATGPT2API_IMAGE:-ghcr.io/yukkcat/chatgpt2api:v3.2.4}
     container_name: chatbot-chatgpt2api
     restart: unless-stopped
     ports:
