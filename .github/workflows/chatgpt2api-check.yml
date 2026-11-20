@@ -47,6 +47,26 @@ jobs:
         run: |
           docker compose -f chatgpt2api/docker-compose.yml config --quiet
           docker compose -f chatgpt2api/docker-compose.yml --profile public config --quiet
+      - name: Boot real Docker container and verify local API
+        env:
+          CHATGPT2API_AUTH_KEY: github-ci-smoke-only-not-a-secret
+        run: |
+          mkdir -p chatgpt2api/data
+          printf '{}\n' > chatgpt2api/config.json
+          docker compose -f chatgpt2api/docker-compose.yml up -d app
+          for attempt in $(seq 1 40); do
+            if python3 chatgpt2api/scripts/smoke_test.py --key "$CHATGPT2API_AUTH_KEY" >/tmp/chatgpt2api-smoke.log 2>&1; then
+              cat /tmp/chatgpt2api-smoke.log
+              exit 0
+            fi
+            sleep 3
+          done
+          cat /tmp/chatgpt2api-smoke.log
+          docker compose -f chatgpt2api/docker-compose.yml logs --tail=100 app
+          exit 1
+      - name: Stop smoke container
+        if: always()
+        run: docker rm -f chatbot-chatgpt2api 2>/dev/null || true
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
