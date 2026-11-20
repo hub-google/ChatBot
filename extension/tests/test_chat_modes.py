@@ -17,7 +17,7 @@ html = """<!doctype html><meta charset="utf-8">
   document.querySelector('#chat').appendChild(outgoing);
 }</script>"""
 setup = """(opts) => {
- window._calls=[];window._handlers=[];window._roots=[];
+ window._calls=[];window._handlers=[];window._roots=[];window._pending=[];window._defer=false;
  window._site={enabled:true,messageSelector:'.incoming',inputSelector:'#input',sendSelector:'#send',
                mode:opts.mode,autoAuthorized:opts.authorized};
  const native=Element.prototype.attachShadow;
@@ -27,17 +27,22 @@ setup = """(opts) => {
      sendMessage:async msg=>{
        window._calls.push(msg);
        if(msg.type==='GET_SITE')return {ok:true,site:window._site};
-       if(msg.type==='SUGGEST')return window._fail?{ok:false,error:'mock_backend_failed'}:{ok:true,text:'AI 自動回覆'};
+       if(msg.type==='SUGGEST'){
+         if(window._defer)return new Promise(resolve=>window._pending.push(resolve));
+         return window._fail?{ok:false,error:'mock_backend_failed'}:{ok:true,text:'AI 自動回覆'};
+       }
        return {ok:true};
      }},
    storage:{onChanged:{addListener:()=>{}}}
  };
 }"""
 
-def make_page(browser, mode, authorized=False, restricted=False):
+def make_page(browser, mode, authorized=False, restricted=False, empty=False):
     page = browser.new_page(viewport={"width": 1280, "height": 720})
     page.goto("about:blank")
     page.set_content(html)
+    if empty:
+        page.locator("#chat").evaluate("e=>e.replaceChildren()")
     page.evaluate(setup, {"mode": mode, "authorized": authorized})
     content = source.replace(guard, "function isRestricted() { return true; }") if restricted else source
     page.add_script_tag(content=content)
@@ -78,6 +83,12 @@ with sync_playwright() as p:
     results.append("permitted_auto_two_turns: PASS")
     page.close()
 
+    page = make_page(browser, "auto", authorized=True, empty=True)
+    incoming(page, "空聊天室的第一則")
+    assert requests(page) == 1 and sends(page) == 1, "First message in empty room was skipped"
+    results.append("first_message_empty_room: PASS")
+    page.close()
+
     page = make_page(browser, "auto", authorized=False)
     incoming(page, "你好")
     assert requests(page) == 1 and sends(page) == 0, "Unauthorized auto-send"
@@ -90,6 +101,13 @@ with sync_playwright() as p:
     fill_click(page)
     assert page.locator("#input").input_value() == "AI 自動回覆" and sends(page) == 0
     results.append("fill_does_not_send: PASS")
+    page.close()
+
+    page = make_page(browser, "auto", authorized=True)
+    page.locator("#input").fill("我正在打字")
+    incoming(page, "您好")
+    assert requests(page) == 1 and sends(page) == 0 and page.locator("#input").input_value() == "我正在打字"
+    results.append("preserve_human_draft: PASS")
     page.close()
 
     page = make_page(browser, "fill", restricted=True)
@@ -113,6 +131,38 @@ with sync_playwright() as p:
     incoming(page, "你好")
     assert requests(page) == 1 and sends(page) == 0, "Failed AI response was sent"
     results.append("api_error_no_send: PASS")
+    # The manual test action must propagate an AI error to the popup.
+    reply = page.evaluate("""async () => await new Promise(resolve =>
+      window._handlers[0]({type:'TEST'}, {}, resolve))""")
+    assert reply["ok"] is False and reply["error"] == "mock_backend_failed"
+    results.append("manual_test_reports_backend_error: PASS")
+    page.close()
+
+    page = make_page(browser, "auto", authorized=True)
+    page.evaluate("window._defer=true")
+    incoming(page, "舊房間訊息")
+    assert requests(page) == 1
+    reply = page.evaluate("""async () => await new Promise(resolve =>
+      window._handlers[0]({type:'RESET'}, {}, resolve))""")
+    assert reply["ok"]
+    page.evaluate("window._pending.shift()({ok:true,text:'舊房間的 AI 回覆'})")
+    page.wait_for_timeout(150)
+    assert sends(page) == 0, "Stale response was sent after room reset"
+    results.append("reset_cancels_stale_reply: PASS")
+    page.close()
+
+    page = make_page(browser, "auto", authorized=True)
+    page.evaluate("window._defer=true")
+    incoming(page, "網站關閉前的訊息")
+    assert requests(page) == 1
+    page.evaluate("window._site.enabled=false")
+    reply = page.evaluate("""async () => await new Promise(resolve =>
+      window._handlers[0]({type:'SITE_RELOAD'}, {}, resolve))""")
+    assert reply["ok"]
+    page.evaluate("window._pending.shift()({ok:true,text:'已停用網站的 AI 回覆'})")
+    page.wait_for_timeout(150)
+    assert sends(page) == 0, "Stale response was sent after site disabled"
+    results.append("disable_cancels_stale_reply: PASS")
     page.close()
     browser.close()
 print(json.dumps({"mode": "offline_chromium_fixture", "results": results}, ensure_ascii=False))
