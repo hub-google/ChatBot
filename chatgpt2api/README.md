@@ -1,6 +1,6 @@
 # ChatGPT2API（獨立部署，供 CHATBOT 選用）
 
-本目錄部署現成開源 [yukkcat/chatgpt2api](https://github.com/yukkcat/chatgpt2api) **v3.2.3** Docker 容器，不修改現有 LINE ChatBot 的 Gemini 設定、LINE webhook 或資料庫。上游提供 Web 管理介面、OpenAI 相容文字及圖片 API。此專案**不是 OpenAI 官方 API**。
+本目錄部署現成開源 [yukkcat/chatgpt2api](https://github.com/yukkcat/chatgpt2api) **v3.2.4** Docker 容器，不修改現有 LINE ChatBot 的 Gemini 設定、LINE webhook 或資料庫。上游提供 Web 管理介面、OpenAI 相容文字及圖片 API。此專案**不是 OpenAI 官方 API**。
 
 ## 步驟一：在 Linux 主機部署（需要 Docker + Compose）
 
