@@ -1,0 +1,13 @@
+.env
+data/
+config.json
+backups/
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+*.png
+*.jpg
+*.jpeg
+*.webp
