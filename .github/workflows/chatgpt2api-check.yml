@@ -12,6 +12,7 @@ on:
       - "chatgpt2api/**"
       - "supabase/functions/line-ai-chatbot/image.ts"
       - "supabase/functions/line-ai-chatbot/image-gateway.test.ts"
+      - ".github/workflows/chatgpt2api-check.yml"
   workflow_dispatch:
 
 permissions:
@@ -22,14 +23,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate Python and shell
+      - name: Validate Python, shell and Windows launchers
         run: |
-          python3 -m py_compile chatgpt2api/scripts/smoke_test.py
+          python3 -m py_compile chatgpt2api/scripts/smoke_test.py chatgpt2api/tests/test_smoke_contract.py
           sh -n chatgpt2api/scripts/setup.sh
+          test -f chatgpt2api/start-windows.cmd
+          test -f chatgpt2api/test-image-windows.cmd
+      - name: Windows PowerShell script syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('chatgpt2api/scripts/start-windows.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+      - name: Run offline authenticated API smoke tests
+        run: python3 -m unittest discover -s chatgpt2api/tests -v
       - name: Validate Docker Compose
         env:
           CHATGPT2API_AUTH_KEY: ci-fake-key-not-for-production
-        run: docker compose -f chatgpt2api/docker-compose.yml config --quiet
+        run: |
+          docker compose -f chatgpt2api/docker-compose.yml config --quiet
+          docker compose -f chatgpt2api/docker-compose.yml --profile public config --quiet
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
