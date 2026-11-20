@@ -24,3 +24,5 @@ jobs:
         run: python extension/tests/test_wootalk_restricted.py
       - name: Test chatbot modes
         run: python extension/tests/test_chat_modes.py
+      - name: Test popup state
+        run: python extension/tests/test_popup_state.py
