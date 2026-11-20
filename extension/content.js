@@ -10,7 +10,7 @@
   function safeSessionSet(value) { try { sessionStorage.setItem(SESSION_KEY, value); } catch { /* unsupported origin */ } }
   let session = safeSessionGet() || newId();
   safeSessionSet(session);
-  let baseline = '', busy = false, pendingMessage = null, lastAutoAnswer = null, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
+  let baseline = '', baselineReady = false, generation = 0, busy = false, pendingMessage = null, lastAutoAnswer = null, pendingTimer = null, picker = null, pickerHighlight = null, panel = null;
   const seen = new Set();
   function select(css) {
     try { return css ? [...document.querySelectorAll(css)] : []; } catch { return []; }
@@ -106,8 +106,18 @@
   function autoSend(answer) {
     if (settings?.mode !== 'auto' || !settings?.autoAuthorized || isRestricted()) return false;
     const send = select(settings.sendSelector)[0];
-    if (!send || !writeAnswer(answer)) {
+    const input = select(settings?.inputSelector)[0];
+    if (!send || !input) {
       showPanel('此網站的輸入框或送出鍵尚未設定，請改用人工發送。', answer);
+      return true;
+    }
+    const existing = input.isContentEditable ? input.textContent : ('value' in input ? input.value : '');
+    if (typeof existing === 'string' && existing.trim()) {
+      showPanel('輸入框已有手動輸入的文字，已保留原文並停止自動發送。', answer);
+      return true;
+    }
+    if (!writeAnswer(answer)) {
+      showPanel('無法填入這個輸入框，請改用人工發送。', answer);
       return true;
     }
     try {
@@ -136,7 +146,7 @@
       el.addEventListener('click', click); actions.appendChild(el);
     };
     if (answer) {
-      if (settings?.mode === 'fill') button('填入', () => inputAnswer(answer));
+      if (settings?.mode === 'fill' || isRestricted()) button('填入', () => inputAnswer(answer));
       button('複製', async () => {
         try { await navigator.clipboard.writeText(answer); }
         catch { showPanel('複製失敗，請手動選取文字複製。', answer); }
@@ -148,22 +158,36 @@
     document.documentElement.appendChild(panel);
   }
   async function runSuggestion(msg) {
-    if (!msg?.text) return;
-    if (busy) { pendingMessage = msg; return; }
+    if (!msg?.text) return { ok:false, error:'message_not_found' };
+    if (busy) {
+      pendingMessage = msg;
+      return { ok:false, error:'request_in_progress' };
+    }
     busy = true;
     const currentKey = signature(msg);
+    const ticket = generation;
+    const requestSession = session;
     const eventId = newId();
     showPanel('AI 正在整理回覆…');
     try {
       const result = await chrome.runtime.sendMessage({
-        type:'SUGGEST', text:msg.text, conversationId:session, eventId
+        type:'SUGGEST', text:msg.text, conversationId:requestSession, eventId
       });
-      if (pendingMessage && signature(pendingMessage) !== currentKey) return;
+      // A response from a previous room, disabled site, or superseded message must never be delivered.
+      if (ticket !== generation || requestSession !== session || !settings?.enabled ||
+          (pendingMessage && signature(pendingMessage) !== currentKey)) {
+        return {ok:false,error:'request_cancelled'};
+      }
       if (!result?.ok) throw new Error(result?.error || 'unknown_error');
+      if (typeof result.text !== 'string' || !result.text.trim()) throw new Error('empty_ai_reply');
       if (!autoSend(result.text)) showPanel(result.text, result.text);
+      return {ok:true};
     } catch(error) {
-      if (!pendingMessage || signature(pendingMessage) === currentKey)
-        showPanel('產生回覆失敗：' + String(error?.message || error));
+      const message = String(error?.message || error);
+      if (ticket === generation && requestSession === session &&
+          (!pendingMessage || signature(pendingMessage) === currentKey))
+        showPanel('產生回覆失敗：' + message);
+      return {ok:false,error:message};
     } finally {
       busy = false;
       const next = pendingMessage;
@@ -174,14 +198,24 @@
   async function detect() {
     if (!settings?.enabled || !settings?.messageSelector || picker || isRestricted()) return;
     const msg = latestMessage(), next = signature(msg);
+    // Initial empty rooms should answer the first *new* message, not discard it.
+    if (!baselineReady) { baseline = next; baselineReady = true; return; }
     if (!next || next === baseline) return;
     if (settings?.mode === 'auto' && lastAutoAnswer && msg?.text === lastAutoAnswer) { baseline = next; return; }
-    if (!baseline) { baseline = next; return; }
     baseline = next;
     if (seen.has(next)) return;
     seen.add(next);
     if (seen.size > 80) seen.clear();
     await runSuggestion(msg);
+  }
+  function invalidate() {
+    generation++;
+    pendingMessage = null;
+    lastAutoAnswer = null;
+  }
+  function refreshBaseline() {
+    baseline = signature(latestMessage());
+    baselineReady = true;
   }
   const observer = new MutationObserver(() => {
     if (pendingTimer) clearTimeout(pendingTimer);
@@ -190,14 +224,15 @@
   chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     (async() => {
       if (msg.type === 'PICK') { startPick(msg.kind); return {ok:true}; }
-      if (msg.type === 'SITE_RELOAD') { await reload(); baseline = signature(latestMessage()); return {ok:true}; }
+      if (msg.type === 'SITE_RELOAD') { invalidate(); await reload(); refreshBaseline(); return {ok:true}; }
       if (msg.type === 'TEST') {
         const current = latestMessage(); if (!current) throw new Error('message_not_found');
-        await runSuggestion(current); return {ok:true};
+        return await runSuggestion(current);
       }
       if (msg.type === 'RESET') {
+        invalidate();
         session = newId(); safeSessionSet(session);
-        seen.clear(); baseline = signature(latestMessage()); return {ok:true};
+        seen.clear(); refreshBaseline(); return {ok:true};
       }
       if (msg.type === 'STATUS') return {ok:true,active:Boolean(settings?.enabled),matched:select(settings?.messageSelector).length};
       throw new Error('unknown_action');
@@ -205,10 +240,13 @@
     return true;
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.chatbotSites) void reload().then(() => { baseline = signature(latestMessage()); });
+    if (area === 'local' && changes.chatbotSites) {
+      invalidate();
+      void reload().then(refreshBaseline);
+    }
   });
   void reload().then(() => {
-    baseline = signature(latestMessage());
+    refreshBaseline();
     observer.observe(document.documentElement, {subtree:true,childList:true,characterData:true});
   });
 })();
