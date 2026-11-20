@@ -88,7 +88,7 @@ CHATGPT2API_IMAGE_MODEL=gpt-image-2.6
 - 主要本機檢查：python3 scripts/smoke_test.py（/v1/models + 錯誤金鑰拒絕）。
 - 真實圖片測試：python3 scripts/smoke_test.py --image 或 Windows test-image-windows.cmd（需要可用上游帳號及額度）。
 - 離線合約測試：python3 -m unittest discover -s chatgpt2api/tests -v（完全不消耗上游生圖額度）。
-- CI：.github/workflows/chatgpt2api-check.yml 驗證 Windows PowerShell、Python、Compose、Deno adapter。CI 使用模擬服務，不宣稱真實圖片生成成功。
+- CI：.github/workflows/chatgpt2api-check.yml 驗證 Windows PowerShell、Python、Compose、Deno adapter，並實際啟動 Docker 容器檢查 /v1/models 與錯誤金鑰拒絕。圖片產生部分僅進行模擬，不宣稱真實圖片生成成功。
 - 日誌：docker compose logs --tail=100 app。
 - 備份：本機 data/、config.json、.env（加密保管），更新映像前先閱讀上游 changelog。
 
@@ -96,7 +96,8 @@ CHATGPT2API_IMAGE_MODEL=gpt-image-2.6
 
 - [x] 已提交部署設定、安全金鑰產生程式、Windows 一鍵啟動／測試、HTTPS 設定與 LINE adapter。
 - [x] 已提交離線 API 合約測試及 CI。
-- [ ] 真實主機 Docker 容器啟動與健康檢查。
+- [x] GitHub Actions 暫時啟動真實 Docker 映像，API 認證與模型清單健康檢查通過。
+- [ ] 尚未部署到可長期運行的主機。
 - [ ] 具有合法存取資格的上游帳號加入後，真實圖片生成成功。
 - [ ] 公開 HTTPS API 可從 Supabase 連入。
 - [ ] LINE 實際成功收到圖片。
