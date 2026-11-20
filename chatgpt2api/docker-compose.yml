@@ -1,0 +1,45 @@
+# ChatGPT2API upstream container. The admin UI binds only to loopback.
+# The "public" profile exposes API/files over HTTPS, not the admin panel.
+services:
+  app:
+    image: ${CHATGPT2API_IMAGE:-ghcr.io/yukkcat/chatgpt2api:v3.2.3}
+    container_name: chatbot-chatgpt2api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CHATGPT2API_PORT:-3000}:80"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-}
+      CHATGPT2API_AUTH_KEY: ${CHATGPT2API_AUTH_KEY:?Run sh scripts/setup.sh first}
+      CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-}
+      CHATGPT2API_THREAD_TOKENS: ${CHATGPT2API_THREAD_TOKENS:-8}
+      TZ: ${TZ:-Asia/Taipei}
+    volumes:
+      - runtime:/app
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+    security_opt:
+      - no-new-privileges:true
+
+  public:
+    image: caddy:2.9-alpine
+    profiles: ["public"]
+    container_name: chatbot-chatgpt2api-https
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-example.invalid}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  runtime:
+  caddy_data:
+  caddy_config:
