@@ -30,7 +30,7 @@ def setup(browser, url, mode="auto", authorized=True):
       };
     }""", {"url":url,"mode":mode,"authorized":authorized})
     page.add_script_tag(content=script)
-    page.wait_for_function("document.querySelector('#origin').textContent.startsWith('http')")
+    page.wait_for_function("document.querySelector('#selectorStatus').textContent.includes('已選取')")
     return page
 
 with sync_playwright() as p:
