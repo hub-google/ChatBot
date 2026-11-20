@@ -64,7 +64,7 @@ $ready = $false
 for ($attempt = 0; $attempt -lt 30; $attempt++) {
     try {
         $models = Invoke-RestMethod -Uri "$baseUrl/v1/models" -Headers $headers -Method Get -TimeoutSec 5
-        if ($null -ne $models.data) { $ready = $true; break }
+        if ($null -ne $models -and $models.PSObject.Properties.Name -contains "data") { $ready = $true; break }
     } catch {
         Start-Sleep -Seconds 2
     }
