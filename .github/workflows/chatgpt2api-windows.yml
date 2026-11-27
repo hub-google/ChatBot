@@ -1,0 +1,113 @@
+name: ChatGPT2API Windows Portable
+on:
+  push:
+    branches:
+      - chatgpt2api-windows
+    paths:
+      - "chatgpt2api-windows/**"
+      - ".github/workflows/chatgpt2api-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt2api-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      UPSTREAM_REF: d26fcb98ea0f15b73ef19ac753bacf0344ce33b2
+    steps:
+      - name: Checkout wrapper
+        uses: actions/checkout@v4
+
+      - name: Install Go 1.26
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.0"
+          cache: false
+
+      - name: Fetch pinned upstream and build native Windows executable
+        shell: pwsh
+        run: |
+          git clone https://github.com/basketikun/chatgpt2api.git upstream
+          if ($LASTEXITCODE -ne 0) { throw "Upstream clone failed" }
+          git -C upstream checkout $env:UPSTREAM_REF
+          if ($LASTEXITCODE -ne 0) { throw "Upstream pinned SHA not found" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $env:CGO_ENABLED = "0"
+          Push-Location upstream
+          try {
+            go build -trimpath -ldflags="-s -w" -o ../dist/chatgpt2api.exe .
+            if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
+          } finally { Pop-Location }
+          if (!(Test-Path dist/chatgpt2api.exe)) { throw "Missing Windows binary" }
+
+      - name: Package complete web frontend, launchers and license
+        shell: pwsh
+        run: |
+          Copy-Item upstream/web dist/web -Recurse -Force
+          Copy-Item upstream/config.example.yaml dist/config.example.yaml
+          Copy-Item upstream/VERSION dist/VERSION
+          Copy-Item upstream/LICENSE dist/UPSTREAM_LICENSE.txt
+          Get-ChildItem chatgpt2api-windows -File |
+            Where-Object { $_.Extension -in @('.cmd','.ps1','.md') } |
+            Copy-Item -Destination dist -Force
+          foreach ($name in @('chatgpt2api.exe','web/index.html','config.example.yaml','start-windows.cmd','start.ps1','stop-windows.cmd','copy-admin-key.cmd','test-api.cmd','UPSTREAM_LICENSE.txt')) {
+            if (!(Test-Path (Join-Path dist $name))) { throw "Missing packaged file: $name" }
+          }
+
+      - name: Windows startup and authenticated API smoke test
+        shell: pwsh
+        run: |
+          $testDir = Join-Path $env:RUNNER_TEMP 'chatgpt2api-live-test'
+          New-Item -ItemType Directory -Force -Path $testDir | Out-Null
+          Copy-Item dist/* $testDir -Recurse -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $testDir '.local'),(Join-Path $testDir 'data') | Out-Null
+          $testKey = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+          [System.IO.File]::WriteAllText((Join-Path $testDir '.local/admin-key.txt'),$testKey)
+          $env:CHATGPT2API_AUTH_KEY = $testKey
+          $env:BIND_ADDR = '127.0.0.1'
+          $env:PORT = '3000'
+          Copy-Item (Join-Path $testDir 'config.example.yaml') (Join-Path $testDir 'config.yaml')
+          $stdout = Join-Path $testDir 'stdout.log'
+          $stderr = Join-Path $testDir 'stderr.log'
+          $process = Start-Process -FilePath (Join-Path $testDir 'chatgpt2api.exe') -WorkingDirectory $testDir -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($process.HasExited) { break }
+              try {
+                $response = Invoke-WebRequest -Uri 'http://127.0.0.1:3000/api/version' -UseBasicParsing -TimeoutSec 2
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (!$ready) {
+              if (Test-Path $stderr) { Get-Content $stderr -Tail 50 }
+              throw 'Native Windows server did not become ready'
+            }
+            & (Join-Path $testDir 'test-api.ps1') -Mode auth
+            if ($LASTEXITCODE -ne 0) { throw 'Authenticated API test failed' }
+            Write-Host 'PASS: Windows binary, local service, authenticated /models, invalid key rejected.'
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Zip portable distribution
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/* -DestinationPath ChatGPT2API_Windows_NoDocker.zip -CompressionLevel Optimal
+          if ((Get-Item ChatGPT2API_Windows_NoDocker.zip).Length -lt 1024) { throw "Zip too small" }
+
+      - name: Upload downloadable Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT2API_Windows_NoDocker
+          path: ChatGPT2API_Windows_NoDocker.zip
+          if-no-files-found: error
+          retention-days: 30
