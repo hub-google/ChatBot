@@ -42,7 +42,7 @@ $ready = $false
 for ($i = 0; $i -lt 45; $i++) {
     if ($proc.HasExited) { break }
     try {
-        $r = Invoke-WebRequest -Uri "http://127.0.0.1:3000/api/version" -UseBasicParsing -TimeoutSec 2
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1:3000/version" -UseBasicParsing -TimeoutSec 2
         if ($r.StatusCode -eq 200) { $ready = $true; break }
     } catch {}
     Start-Sleep -Milliseconds 500
