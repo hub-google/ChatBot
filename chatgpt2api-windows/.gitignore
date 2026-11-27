@@ -1,0 +1,7 @@
+.local/
+data/
+config.yaml
+chatgpt2api.exe
+*.zip
+test-generated-image.png
+*.log
